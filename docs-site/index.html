@@ -1,0 +1,3513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenClaw Secure Docker — Architecture & Security Reference</title>
+  <style>
+    /* ── Reset & Base ─────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:         #0a0a0f;
+      --bg2:        #0d0d18;
+      --bg3:        #111120;
+      --bg4:        #14142a;
+      --border:     #1e1e3a;
+      --border2:    #2a2a4a;
+      --text:       #c8cce0;
+      --text-dim:   #7880a0;
+      --text-bright:#e8ecff;
+      --cyan:       #00d4ff;
+      --cyan-dim:   #0099bb;
+      --cyan-glow:  rgba(0,212,255,0.15);
+      --green:      #00ff88;
+      --green-dim:  #00aa55;
+      --green-glow: rgba(0,255,136,0.12);
+      --red:        #ff4444;
+      --red-dim:    #bb2222;
+      --red-glow:   rgba(255,68,68,0.12);
+      --gold:       #ffd700;
+      --purple:     #b060ff;
+      --sidebar-w:  260px;
+      --nav-h:      60px;
+    }
+
+    html { scroll-behavior: smooth; font-size: 16px; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+      line-height: 1.65;
+      overflow-x: hidden;
+    }
+
+    /* ── Scrollbar ───────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg2); }
+    ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--cyan-dim); }
+
+    /* ── Top Nav ─────────────────────────────────────────────── */
+    .top-nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: var(--nav-h);
+      background: rgba(10,10,15,0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 1.5rem;
+      gap: 1rem;
+      z-index: 1000;
+    }
+
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-weight: 700;
+      font-size: 1rem;
+      color: var(--text-bright);
+      white-space: nowrap;
+    }
+
+    .nav-brand .shield-icon {
+      width: 28px; height: 28px;
+      background: linear-gradient(135deg, var(--cyan), var(--purple));
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 0.2rem;
+      overflow-x: auto;
+      flex: 1;
+      list-style: none;
+      scrollbar-width: none;
+    }
+    .nav-links::-webkit-scrollbar { display: none; }
+
+    .nav-links a {
+      color: var(--text-dim);
+      text-decoration: none;
+      font-size: 0.78rem;
+      padding: 0.3rem 0.6rem;
+      border-radius: 4px;
+      white-space: nowrap;
+      transition: color 0.2s, background 0.2s;
+    }
+    .nav-links a:hover {
+      color: var(--cyan);
+      background: var(--cyan-glow);
+    }
+
+    .nav-badge {
+      background: var(--green-glow);
+      border: 1px solid var(--green-dim);
+      color: var(--green);
+      font-size: 0.7rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 12px;
+      white-space: nowrap;
+      font-weight: 600;
+    }
+
+    /* ── Layout ─────────────────────────────────────────────── */
+    .layout {
+      display: flex;
+      padding-top: var(--nav-h);
+      min-height: 100vh;
+    }
+
+    /* ── Sidebar ─────────────────────────────────────────────── */
+    .sidebar {
+      width: var(--sidebar-w);
+      position: fixed;
+      top: var(--nav-h);
+      bottom: 0;
+      left: 0;
+      background: var(--bg2);
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      padding: 1.5rem 0;
+      scrollbar-width: thin;
+    }
+
+    .sidebar-section {
+      margin-bottom: 0.5rem;
+    }
+
+    .sidebar-label {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-dim);
+      padding: 0.5rem 1.2rem 0.3rem;
+      font-weight: 700;
+    }
+
+    .sidebar a {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.45rem 1.2rem;
+      color: var(--text-dim);
+      text-decoration: none;
+      font-size: 0.82rem;
+      transition: all 0.15s;
+      border-left: 2px solid transparent;
+    }
+
+    .sidebar a:hover {
+      color: var(--text-bright);
+      background: var(--bg3);
+      border-left-color: var(--cyan-dim);
+    }
+
+    .sidebar a.active {
+      color: var(--cyan);
+      background: var(--cyan-glow);
+      border-left-color: var(--cyan);
+    }
+
+    .sidebar a .icon { font-size: 0.9em; opacity: 0.8; }
+
+    /* ── Main Content ────────────────────────────────────────── */
+    .main {
+      margin-left: var(--sidebar-w);
+      flex: 1;
+      padding: 3rem 2.5rem;
+      max-width: 1100px;
+    }
+
+    /* ── Section Anchors ─────────────────────────────────────── */
+    section {
+      margin-bottom: 5rem;
+      scroll-margin-top: calc(var(--nav-h) + 1.5rem);
+    }
+
+    /* ── Typography ─────────────────────────────────────────── */
+    h1, h2, h3, h4 {
+      color: var(--text-bright);
+      font-weight: 700;
+      line-height: 1.3;
+    }
+
+    h1 { font-size: 3rem; }
+
+    h2 {
+      font-size: 1.8rem;
+      margin-bottom: 1.5rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    h3 { font-size: 1.2rem; margin: 2rem 0 0.75rem; color: var(--cyan); }
+    h4 { font-size: 1rem; margin: 1.5rem 0 0.5rem; color: var(--text-bright); }
+
+    p { margin-bottom: 1rem; }
+
+    a { color: var(--cyan); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    strong { color: var(--text-bright); font-weight: 600; }
+    code {
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+      font-size: 0.85em;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      padding: 0.1em 0.4em;
+      border-radius: 4px;
+      color: var(--cyan);
+    }
+
+    /* ── Hero ────────────────────────────────────────────────── */
+    .hero {
+      padding: 4rem 0 3rem;
+      position: relative;
+    }
+
+    .hero-eyebrow {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      color: var(--cyan);
+      font-weight: 700;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .hero-eyebrow::before {
+      content: '';
+      width: 24px; height: 2px;
+      background: var(--cyan);
+      border-radius: 1px;
+    }
+
+    .hero h1 {
+      margin-bottom: 1.5rem;
+      background: linear-gradient(135deg, var(--text-bright) 0%, var(--cyan) 60%, var(--purple) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero-sub {
+      font-size: 1.2rem;
+      color: var(--text-dim);
+      max-width: 700px;
+      margin-bottom: 2.5rem;
+      line-height: 1.7;
+    }
+
+    .hero-promise {
+      background: linear-gradient(135deg, var(--bg3), var(--bg4));
+      border: 1px solid var(--green-dim);
+      border-radius: 12px;
+      padding: 1.5rem 2rem;
+      max-width: 680px;
+      box-shadow: 0 0 40px var(--green-glow);
+      margin-bottom: 2rem;
+    }
+
+    .hero-promise-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--green);
+      margin-bottom: 0.5rem;
+      font-weight: 700;
+    }
+
+    .hero-promise p {
+      color: var(--text-bright);
+      font-size: 1.1rem;
+      margin: 0;
+      font-weight: 500;
+    }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 1rem;
+      max-width: 700px;
+      margin-bottom: 2rem;
+    }
+
+    .stat-card {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+    }
+
+    .stat-num {
+      font-size: 2rem;
+      font-weight: 800;
+      color: var(--cyan);
+      line-height: 1;
+      margin-bottom: 0.25rem;
+    }
+
+    .stat-label {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* ── Code Blocks ─────────────────────────────────────────── */
+    .code-block {
+      position: relative;
+      margin: 1.25rem 0;
+    }
+
+    .code-block pre {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem 1.5rem;
+      overflow-x: auto;
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+      font-size: 0.82rem;
+      line-height: 1.7;
+      color: var(--text);
+    }
+
+    .code-lang {
+      position: absolute;
+      top: -1px; right: 12px;
+      background: var(--border2);
+      color: var(--text-dim);
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 0.2rem 0.5rem;
+      border-radius: 0 0 4px 4px;
+    }
+
+    /* Syntax tokens */
+    .t-kw  { color: #c792ea; }  /* keyword */
+    .t-str { color: #c3e88d; }  /* string */
+    .t-num { color: #f78c6c; }  /* number */
+    .t-cmt { color: #546e7a; font-style: italic; }  /* comment */
+    .t-fn  { color: #82aaff; }  /* function */
+    .t-key { color: #00d4ff; }  /* key/label */
+    .t-op  { color: #89ddff; }  /* operator */
+    .t-bln { color: #ff5370; }  /* boolean */
+    .t-url { color: #f07178; }  /* url/path */
+
+    /* ── Architecture Diagram ────────────────────────────────── */
+    .arch-diagram {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2.5rem;
+      margin: 2rem 0;
+      overflow-x: auto;
+    }
+
+    .arch-host {
+      border: 2px dashed var(--border2);
+      border-radius: 10px;
+      padding: 2rem;
+      position: relative;
+    }
+
+    .arch-host-label {
+      position: absolute;
+      top: -13px; left: 20px;
+      background: var(--bg2);
+      padding: 0 0.75rem;
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .arch-row {
+      display: flex;
+      gap: 1.5rem;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+
+    .arch-col {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      flex: 1;
+      min-width: 160px;
+    }
+
+    .arch-container {
+      background: var(--bg3);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      position: relative;
+    }
+
+    .arch-container.openbao { border: 1.5px solid #b060ff; }
+    .arch-container.init    { border: 1.5px solid var(--cyan-dim); }
+    .arch-container.app     { border: 1.5px solid var(--green-dim); }
+
+    .arch-container-title {
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      margin-bottom: 0.5rem;
+    }
+
+    .arch-container.openbao .arch-container-title { color: #b060ff; }
+    .arch-container.init .arch-container-title    { color: var(--cyan); }
+    .arch-container.app .arch-container-title     { color: var(--green); }
+
+    .arch-container-port {
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      font-family: 'SF Mono', monospace;
+      margin-bottom: 0.5rem;
+    }
+
+    .arch-container-detail {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      line-height: 1.5;
+    }
+
+    .arch-volumes-panel {
+      background: var(--bg3);
+      border: 1.5px solid var(--border2);
+      border-radius: 8px;
+      padding: 1.25rem;
+      margin-top: 1.5rem;
+    }
+
+    .arch-volumes-title {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-dim);
+      margin-bottom: 1rem;
+    }
+
+    .arch-mount-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 0.75rem;
+    }
+
+    .arch-mount {
+      border-radius: 6px;
+      padding: 0.75rem 1rem;
+      font-size: 0.78rem;
+    }
+
+    .arch-mount.ram {
+      background: var(--green-glow);
+      border: 1px solid var(--green-dim);
+    }
+
+    .arch-mount.enc {
+      background: rgba(0,212,255,0.07);
+      border: 1px solid var(--cyan-dim);
+    }
+
+    .arch-mount-path {
+      font-family: 'SF Mono', monospace;
+      font-size: 0.75rem;
+      font-weight: 700;
+      margin-bottom: 0.3rem;
+    }
+
+    .arch-mount.ram .arch-mount-path   { color: var(--green); }
+    .arch-mount.enc .arch-mount-path   { color: var(--cyan); }
+
+    .arch-mount-desc {
+      color: var(--text-dim);
+      font-size: 0.72rem;
+      line-height: 1.4;
+    }
+
+    .arch-flow {
+      margin-top: 1.5rem;
+    }
+
+    .arch-flow-title {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-dim);
+      font-weight: 700;
+      margin-bottom: 0.75rem;
+    }
+
+    /* SVG Arrow Flow */
+    .flow-svg {
+      width: 100%;
+      overflow: visible;
+    }
+
+    /* ── Arrow animation ─────────────────────────────────────── */
+    @keyframes dash-flow {
+      to { stroke-dashoffset: -30; }
+    }
+
+    .flow-arrow {
+      stroke-dasharray: 8 4;
+      animation: dash-flow 1.5s linear infinite;
+    }
+
+    /* ── Data Flow Steps ─────────────────────────────────────── */
+    .flow-steps {
+      margin: 1.5rem 0;
+    }
+
+    .flow-step {
+      display: flex;
+      gap: 1.25rem;
+      margin-bottom: 0.75rem;
+      align-items: flex-start;
+    }
+
+    .flow-step-num {
+      flex-shrink: 0;
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.75rem;
+      font-weight: 700;
+      background: var(--bg3);
+      border: 1.5px solid var(--border2);
+      color: var(--text-dim);
+    }
+
+    .flow-step.active .flow-step-num {
+      background: var(--cyan-glow);
+      border-color: var(--cyan-dim);
+      color: var(--cyan);
+    }
+
+    .flow-step-body {
+      flex: 1;
+      padding-top: 0.15rem;
+    }
+
+    .flow-step-title {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-bright);
+      margin-bottom: 0.2rem;
+    }
+
+    .flow-step-desc {
+      font-size: 0.8rem;
+      color: var(--text-dim);
+    }
+
+    /* ── Security Layers ─────────────────────────────────────── */
+    .sec-layer {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.5rem;
+      margin-bottom: 1rem;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .sec-layer::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 3px;
+      border-radius: 3px 0 0 3px;
+    }
+
+    .sec-layer.green::before { background: var(--green); }
+    .sec-layer.cyan::before  { background: var(--cyan); }
+    .sec-layer.gold::before  { background: var(--gold); }
+    .sec-layer.purple::before{ background: var(--purple); }
+
+    .sec-layer:hover {
+      border-color: var(--border2);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+
+    .sec-layer-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .sec-layer-icon {
+      width: 36px; height: 36px;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.1rem;
+      flex-shrink: 0;
+    }
+
+    .sec-layer.green .sec-layer-icon { background: var(--green-glow); }
+    .sec-layer.cyan  .sec-layer-icon { background: var(--cyan-glow); }
+    .sec-layer.gold  .sec-layer-icon { background: rgba(255,215,0,0.1); }
+    .sec-layer.purple.sec-layer-icon { background: rgba(176,96,255,0.1); }
+
+    .sec-layer-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--text-bright);
+    }
+
+    .sec-layer-subtitle {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+    }
+
+    .sec-layer-body {
+      font-size: 0.85rem;
+      color: var(--text);
+      line-height: 1.65;
+    }
+
+    .sec-layer-body p { margin-bottom: 0.5rem; }
+
+    .detail-grid {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.35rem 1rem;
+      margin-top: 0.75rem;
+      font-size: 0.8rem;
+    }
+
+    .detail-label { color: var(--text-dim); font-weight: 600; white-space: nowrap; }
+    .detail-val   { color: var(--text); font-family: 'SF Mono', monospace; font-size: 0.78rem; }
+
+    /* ── Container Cards ─────────────────────────────────────── */
+    .container-card {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.75rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .container-card-header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .container-badge {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 0.25rem 0.6rem;
+      border-radius: 4px;
+    }
+
+    .badge-openbao { background: rgba(176,96,255,0.15); color: var(--purple); border: 1px solid rgba(176,96,255,0.4); }
+    .badge-init    { background: var(--cyan-glow); color: var(--cyan); border: 1px solid var(--cyan-dim); }
+    .badge-app     { background: var(--green-glow); color: var(--green); border: 1px solid var(--green-dim); }
+
+    .container-name {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--text-bright);
+    }
+
+    .container-port {
+      font-size: 0.8rem;
+      font-family: 'SF Mono', monospace;
+      color: var(--text-dim);
+      margin-left: auto;
+    }
+
+    .container-body {
+      font-size: 0.85rem;
+      color: var(--text);
+      line-height: 1.65;
+    }
+
+    .mini-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+      margin: 1rem 0;
+    }
+
+    .mini-table th {
+      text-align: left;
+      color: var(--text-dim);
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 0.4rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+      font-weight: 700;
+    }
+
+    .mini-table td {
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid rgba(30,30,58,0.5);
+      vertical-align: top;
+    }
+
+    .mini-table tr:last-child td { border-bottom: none; }
+
+    .mini-table td:first-child {
+      font-family: 'SF Mono', monospace;
+      color: var(--cyan);
+      white-space: nowrap;
+      font-size: 0.78rem;
+    }
+
+    /* ── API Reference ───────────────────────────────────────── */
+    .api-endpoint {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: 1.5rem;
+      overflow: hidden;
+    }
+
+    .api-endpoint-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.9rem 1.25rem;
+      background: var(--bg3);
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .http-method {
+      font-size: 0.7rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.25rem 0.6rem;
+      border-radius: 4px;
+      font-family: 'SF Mono', monospace;
+      flex-shrink: 0;
+    }
+
+    .method-get    { background: rgba(0,255,136,0.15); color: var(--green); border: 1px solid var(--green-dim); }
+    .method-post   { background: rgba(0,212,255,0.15); color: var(--cyan); border: 1px solid var(--cyan-dim); }
+    .method-delete { background: rgba(255,68,68,0.15); color: var(--red); border: 1px solid var(--red-dim); }
+
+    .api-path {
+      font-family: 'SF Mono', monospace;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--text-bright);
+    }
+
+    .api-summary {
+      font-size: 0.8rem;
+      color: var(--text-dim);
+      margin-left: auto;
+    }
+
+    .api-body { padding: 1.25rem 1.5rem; }
+
+    .api-desc { font-size: 0.85rem; color: var(--text); margin-bottom: 1rem; }
+
+    .response-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-dim);
+      font-weight: 700;
+      margin-bottom: 0.4rem;
+    }
+
+    /* ── Threat Model ────────────────────────────────────────── */
+    .threat-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+      margin: 1.5rem 0;
+    }
+
+    @media (max-width: 700px) {
+      .threat-grid { grid-template-columns: 1fr; }
+    }
+
+    .threat-panel {
+      border-radius: 10px;
+      padding: 1.5rem;
+    }
+
+    .threat-panel.protected {
+      background: var(--green-glow);
+      border: 1px solid var(--green-dim);
+    }
+
+    .threat-panel.vulnerable {
+      background: var(--red-glow);
+      border: 1px solid var(--red-dim);
+    }
+
+    .threat-panel-title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 1rem;
+    }
+
+    .threat-panel.protected .threat-panel-title { color: var(--green); }
+    .threat-panel.vulnerable .threat-panel-title { color: var(--red); }
+
+    .threat-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+      font-size: 0.82rem;
+      line-height: 1.5;
+    }
+
+    .threat-icon {
+      flex-shrink: 0;
+      font-size: 0.9rem;
+      margin-top: 0.05rem;
+    }
+
+    .threat-text { color: var(--text); }
+    .threat-note { color: var(--text-dim); font-size: 0.75rem; margin-top: 0.2rem; }
+
+    /* ── Test Suite ──────────────────────────────────────────── */
+    .test-domain {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .test-domain-title {
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: var(--text-bright);
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .test-count {
+      background: var(--bg4);
+      border: 1px solid var(--border2);
+      color: var(--text-dim);
+      font-size: 0.65rem;
+      font-weight: 700;
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      font-family: 'SF Mono', monospace;
+    }
+
+    .test-list {
+      list-style: none;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 0.4rem;
+    }
+
+    .test-list li {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      padding: 0.2rem 0;
+    }
+
+    .test-list li::before {
+      content: '✓';
+      color: var(--green);
+      font-weight: 700;
+      font-size: 0.75rem;
+      flex-shrink: 0;
+    }
+
+    /* ── Config Table ────────────────────────────────────────── */
+    .config-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+      margin: 1rem 0;
+    }
+
+    .config-table th {
+      text-align: left;
+      color: var(--text-dim);
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 0.5rem 1rem;
+      border-bottom: 1px solid var(--border);
+      font-weight: 700;
+      background: var(--bg3);
+    }
+
+    .config-table td {
+      padding: 0.65rem 1rem;
+      border-bottom: 1px solid rgba(30,30,58,0.5);
+      vertical-align: top;
+    }
+
+    .config-table tr:last-child td { border-bottom: none; }
+
+    .config-table td:first-child {
+      font-family: 'SF Mono', monospace;
+      color: var(--cyan);
+      font-size: 0.8rem;
+      white-space: nowrap;
+    }
+
+    .config-table td:nth-child(2) {
+      font-family: 'SF Mono', monospace;
+      color: var(--green);
+      font-size: 0.78rem;
+    }
+
+    /* ── Animated Pipeline ───────────────────────────────────── */
+    .pipeline {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2rem;
+      margin: 2rem 0;
+      overflow-x: auto;
+    }
+
+    .pipeline-title {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-dim);
+      font-weight: 700;
+      margin-bottom: 1.5rem;
+    }
+
+    .pipeline-track {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      margin-bottom: 1.25rem;
+      flex-wrap: nowrap;
+    }
+
+    .pipeline-node {
+      border-radius: 8px;
+      padding: 0.6rem 1rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-align: center;
+      flex-shrink: 0;
+      line-height: 1.3;
+      min-width: 100px;
+    }
+
+    .pipeline-node.source { background: rgba(176,96,255,0.15); border: 1px solid var(--purple); color: var(--purple); }
+    .pipeline-node.process{ background: var(--cyan-glow); border: 1px solid var(--cyan-dim); color: var(--cyan); }
+    .pipeline-node.store  { background: rgba(0,212,255,0.07); border: 1px solid var(--cyan-dim); color: var(--cyan-dim); }
+    .pipeline-node.ram    { background: var(--green-glow); border: 1px solid var(--green-dim); color: var(--green); }
+    .pipeline-node.dead   { background: var(--red-glow); border: 1px solid var(--red-dim); color: var(--red); }
+
+    .pipeline-arrow {
+      flex-shrink: 0;
+      width: 40px;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .pipeline-arrow::after {
+      content: '→';
+      color: var(--text-dim);
+      font-size: 1.1rem;
+    }
+
+    .pipeline-arrow.anim::after {
+      animation: pulse-arrow 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse-arrow {
+      0%, 100% { color: var(--text-dim); transform: translateX(0); }
+      50% { color: var(--cyan); transform: translateX(3px); }
+    }
+
+    .pipeline-label {
+      font-size: 0.68rem;
+      color: var(--text-dim);
+      text-align: center;
+      margin-top: 0.25rem;
+    }
+
+    .pipeline-col {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* ── Boot Sequence ───────────────────────────────────────── */
+    .boot-seq {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      margin: 1.5rem 0;
+      position: relative;
+    }
+
+    .boot-seq::before {
+      content: '';
+      position: absolute;
+      left: 16px;
+      top: 0; bottom: 0;
+      width: 2px;
+      background: linear-gradient(to bottom, var(--purple), var(--cyan), var(--green));
+      border-radius: 1px;
+    }
+
+    .boot-step {
+      display: flex;
+      gap: 1rem;
+      align-items: flex-start;
+      padding: 0.75rem 0;
+      position: relative;
+    }
+
+    .boot-dot {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+      font-weight: 800;
+      z-index: 1;
+      position: relative;
+    }
+
+    .boot-step.s1 .boot-dot { background: rgba(176,96,255,0.2); border: 2px solid var(--purple); color: var(--purple); }
+    .boot-step.s2 .boot-dot { background: rgba(176,96,255,0.2); border: 2px solid var(--purple); color: var(--purple); }
+    .boot-step.s3 .boot-dot { background: var(--cyan-glow); border: 2px solid var(--cyan-dim); color: var(--cyan); }
+    .boot-step.s4 .boot-dot { background: var(--cyan-glow); border: 2px solid var(--cyan-dim); color: var(--cyan); }
+    .boot-step.s5 .boot-dot { background: var(--green-glow); border: 2px solid var(--green-dim); color: var(--green); }
+
+    .boot-content {
+      flex: 1;
+      padding-top: 0.3rem;
+    }
+
+    .boot-title {
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--text-bright);
+      margin-bottom: 0.2rem;
+    }
+
+    .boot-desc {
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      line-height: 1.5;
+    }
+
+    /* ── Callout boxes ───────────────────────────────────────── */
+    .callout {
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin: 1.25rem 0;
+      display: flex;
+      gap: 0.75rem;
+      align-items: flex-start;
+      font-size: 0.85rem;
+    }
+
+    .callout.info {
+      background: var(--cyan-glow);
+      border: 1px solid var(--cyan-dim);
+    }
+
+    .callout.warning {
+      background: rgba(255,215,0,0.08);
+      border: 1px solid rgba(255,215,0,0.3);
+    }
+
+    .callout.success {
+      background: var(--green-glow);
+      border: 1px solid var(--green-dim);
+    }
+
+    .callout-icon { font-size: 1.1rem; flex-shrink: 0; }
+
+    .callout-text { color: var(--text); flex: 1; line-height: 1.6; }
+    .callout-text strong { color: var(--text-bright); }
+
+    /* ── Quick Start ─────────────────────────────────────────── */
+    .steps-numbered {
+      counter-reset: step-counter;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .step-item {
+      counter-increment: step-counter;
+      display: flex;
+      gap: 1rem;
+      align-items: flex-start;
+    }
+
+    .step-num {
+      flex-shrink: 0;
+      width: 28px; height: 28px;
+      background: var(--bg3);
+      border: 1.5px solid var(--border2);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--cyan);
+      margin-top: 0.1rem;
+    }
+
+    .step-content { flex: 1; }
+    .step-label {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-bright);
+      margin-bottom: 0.4rem;
+    }
+
+    /* ── Section number badges ───────────────────────────────── */
+    .section-num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px; height: 28px;
+      background: var(--bg3);
+      border: 1px solid var(--border2);
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--text-dim);
+      flex-shrink: 0;
+    }
+
+    /* ── Badge pills ─────────────────────────────────────────── */
+    .pill {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 0.15rem 0.5rem;
+      border-radius: 20px;
+      vertical-align: middle;
+    }
+
+    .pill-green  { background: var(--green-glow); color: var(--green); border: 1px solid var(--green-dim); }
+    .pill-cyan   { background: var(--cyan-glow);  color: var(--cyan);  border: 1px solid var(--cyan-dim); }
+    .pill-red    { background: var(--red-glow);   color: var(--red);   border: 1px solid var(--red-dim); }
+    .pill-purple { background: rgba(176,96,255,0.12); color: var(--purple); border: 1px solid rgba(176,96,255,0.4); }
+
+    /* ── Footer ─────────────────────────────────────────────── */
+    .footer {
+      margin-left: var(--sidebar-w);
+      padding: 2rem 2.5rem;
+      border-top: 1px solid var(--border);
+      color: var(--text-dim);
+      font-size: 0.8rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .footer-spacer { flex: 1; }
+
+    /* ── Responsive ──────────────────────────────────────────── */
+    @media (max-width: 900px) {
+      .sidebar { display: none; }
+      .main, .footer { margin-left: 0; }
+      .main { padding: 2rem 1.25rem; }
+      .threat-grid { grid-template-columns: 1fr; }
+      h1 { font-size: 2.2rem; }
+      .arch-row { flex-direction: column; }
+    }
+
+    /* ── Glow animations ─────────────────────────────────────── */
+    @keyframes glow-pulse {
+      0%, 100% { box-shadow: 0 0 10px var(--cyan-glow); }
+      50%       { box-shadow: 0 0 25px rgba(0,212,255,0.25); }
+    }
+
+    @keyframes scan-line {
+      0%   { transform: translateY(-100%); opacity: 0; }
+      10%  { opacity: 0.5; }
+      90%  { opacity: 0.5; }
+      100% { transform: translateY(600%); opacity: 0; }
+    }
+
+    /* Particle stream animation */
+    .data-particle {
+      display: inline-block;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--cyan);
+      animation: particle-flow 3s ease-in-out infinite;
+    }
+
+    @keyframes particle-flow {
+      0%   { opacity: 0; transform: translateX(0); }
+      20%  { opacity: 1; }
+      80%  { opacity: 1; }
+      100% { opacity: 0; transform: translateX(200px); }
+    }
+
+    /* ── Separator ───────────────────────────────────────────── */
+    .sep {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 2rem 0;
+    }
+
+    /* Terminal-style block */
+    .terminal {
+      background: #060608;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      margin: 1.25rem 0;
+    }
+
+    .terminal-bar {
+      background: var(--bg3);
+      border-bottom: 1px solid var(--border);
+      padding: 0.5rem 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .terminal-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+    }
+    .dot-red    { background: #ff5f56; }
+    .dot-yellow { background: #ffbd2e; }
+    .dot-green  { background: #27c93f; }
+
+    .terminal-title {
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      margin-left: 0.5rem;
+      font-family: 'SF Mono', monospace;
+    }
+
+    .terminal pre {
+      padding: 1rem 1.25rem;
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+      font-size: 0.8rem;
+      line-height: 1.7;
+      color: var(--text);
+      margin: 0;
+      overflow-x: auto;
+    }
+
+    .t-prompt { color: var(--green); }
+    .t-cmd    { color: var(--text-bright); }
+    .t-out    { color: var(--text-dim); }
+    .t-ok     { color: var(--green); }
+    .t-warn   { color: var(--gold); }
+    .t-err    { color: var(--red); }
+
+  </style>
+</head>
+<body>
+
+<!-- ──────────────────────────────────────────────────────────── -->
+<!-- TOP NAV -->
+<!-- ──────────────────────────────────────────────────────────── -->
+<nav class="top-nav">
+  <div class="nav-brand">
+    <div class="shield-icon">🔐</div>
+    OpenClaw Secure Docker
+  </div>
+  <ul class="nav-links">
+    <li><a href="#overview">Overview</a></li>
+    <li><a href="#architecture">Architecture</a></li>
+    <li><a href="#security">Security</a></li>
+    <li><a href="#containers">Containers</a></li>
+    <li><a href="#api">API</a></li>
+    <li><a href="#dataflow">Data Flow</a></li>
+    <li><a href="#tests">Tests</a></li>
+    <li><a href="#threats">Threats</a></li>
+    <li><a href="#quickstart">Quick Start</a></li>
+    <li><a href="#config">Config</a></li>
+  </ul>
+  <span class="nav-badge">🔒 Secrets Never Touch Disk</span>
+</nav>
+
+<!-- ──────────────────────────────────────────────────────────── -->
+<!-- SIDEBAR -->
+<!-- ──────────────────────────────────────────────────────────── -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-section">
+    <div class="sidebar-label">Introduction</div>
+    <a href="#overview" class="active"><span class="icon">🏠</span> Overview</a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-label">Design</div>
+    <a href="#architecture"><span class="icon">🏗️</span> Architecture</a>
+    <a href="#security"><span class="icon">🛡️</span> Security Layers</a>
+    <a href="#containers"><span class="icon">📦</span> Container Details</a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-label">Reference</div>
+    <a href="#api"><span class="icon">⚡</span> API Reference</a>
+    <a href="#dataflow"><span class="icon">🌊</span> Data Flow</a>
+    <a href="#tests"><span class="icon">✅</span> Test Suite</a>
+    <a href="#threats"><span class="icon">⚔️</span> Threat Model</a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-label">Operations</div>
+    <a href="#quickstart"><span class="icon">🚀</span> Quick Start</a>
+    <a href="#config"><span class="icon">⚙️</span> Configuration</a>
+  </div>
+</aside>
+
+<!-- ──────────────────────────────────────────────────────────── -->
+<!-- MAIN CONTENT -->
+<!-- ──────────────────────────────────────────────────────────── -->
+<main class="main">
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- SECTION 1: OVERVIEW / HERO -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<section id="overview">
+  <div class="hero">
+    <div class="hero-eyebrow">OpenClaw · Secure Docker · Architecture Reference</div>
+    <h1>Secrets that never<br>touch the disk</h1>
+    <p class="hero-sub">
+      A production-grade, security-hardened Docker Compose environment demonstrating
+      how an autonomous AI agent manages encryption keys, session data, and long-term
+      memory with zero tolerance for plaintext at rest.
+    </p>
+
+    <div class="hero-promise">
+      <div class="hero-promise-label">Core Promise</div>
+      <p>
+        The Fernet encryption key lives only in RAM — fetched from OpenBao at runtime
+        via AppRole authentication, never written to any file, automatically wiped if
+        the secrets manager becomes unreachable.
+      </p>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="stat-num">3</div>
+        <div class="stat-label">Containers</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num">4</div>
+        <div class="stat-label">Mount Points</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num">8</div>
+        <div class="stat-label">Security Layers</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num">7</div>
+        <div class="stat-label">API Endpoints</div>
+      </div>
+    </div>
+  </div>
+
+  <h3>Why This Exists</h3>
+  <p>
+    Autonomous AI agents are increasingly entrusted with sensitive context: conversation history,
+    API credentials, long-term memory. The naive approach — writing session data to disk, storing
+    keys in environment variables — creates a forensics nightmare. A stopped container leaving
+    plaintext on disk is a liability.
+  </p>
+  <p>
+    This design demonstrates a layered approach where secrets are sourced from a dedicated vault,
+    encryption happens at the application layer before any bytes hit persistent storage, active
+    sessions live exclusively in RAM, and a dead man's switch ensures key material is wiped if
+    the secrets manager goes dark.
+  </p>
+
+  <h3>Technology Stack</h3>
+  <div class="mini-table">
+    <table class="mini-table">
+      <thead>
+        <tr><th>Component</th><th>Technology</th><th>Purpose</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Secrets Manager</td><td>OpenBao (open-source Vault fork)</td><td>AppRole auth, KV secrets, Fernet key storage</td></tr>
+        <tr><td>Encryption</td><td>Fernet (HMAC-SHA256 + AES-128-CBC)</td><td>Authenticated encryption for session data</td></tr>
+        <tr><td>Application</td><td>Python 3.12 + Flask</td><td>Session management API, dead man's switch</td></tr>
+        <tr><td>Orchestration</td><td>Docker Compose</td><td>Service mesh, tmpfs mounts, volume management</td></tr>
+        <tr><td>RAM Storage</td><td>Linux tmpfs</td><td>Active sessions, secrets, cache — wiped on stop</td></tr>
+        <tr><td>Persistent Store</td><td>Named Docker volume</td><td>Encrypted workspace — Fernet ciphertext only</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout info">
+    <span class="callout-icon">💡</span>
+    <span class="callout-text">
+      <strong>Design philosophy:</strong> Application-layer Fernet encryption is the practical
+      security boundary. For production, back the <code>workspace-data</code> volume with a
+      LUKS-encrypted host volume to get both host-level and application-level encryption. The
+      current design focuses on demonstrating zero-plaintext-at-rest without requiring
+      <code>--privileged</code> containers.
+    </span>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- SECTION 2: ARCHITECTURE -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<section id="architecture">
+  <h2><span class="section-num">2</span> Architecture Diagram</h2>
+
+  <p>
+    Three containers. Four mount points. One encryption key that never leaves RAM.
+    The design follows the principle of least privilege at every boundary.
+  </p>
+
+  <div class="arch-diagram">
+    <div class="arch-host">
+      <div class="arch-host-label">Docker Host</div>
+
+      <!-- Container row -->
+      <div class="arch-row">
+        <!-- OpenBao -->
+        <div class="arch-col">
+          <div class="arch-container openbao">
+            <div class="arch-container-title">🔐 OpenBao</div>
+            <div class="arch-container-port">:8210 (host) → :8200 (internal)</div>
+            <div class="arch-container-detail">
+              KV v2 secrets engine<br>
+              AppRole auth method<br>
+              Dev mode · in-memory storage<br>
+              <br>
+              <strong style="color:#b060ff">Stores:</strong><br>
+              kv/openclaw/encryption<br>
+              kv/openclaw/api-keys<br>
+              kv/openclaw/config
+            </div>
+          </div>
+        </div>
+
+        <!-- Arrow + Init -->
+        <div class="arch-col" style="align-items:center; justify-content:center; flex:0 0 auto; padding-top:2rem;">
+          <svg width="60" height="80" viewBox="0 0 60 80">
+            <defs>
+              <marker id="arrowhead" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+                <path d="M0,0 L6,3 L0,6 Z" fill="#546e7a"/>
+              </marker>
+              <marker id="arrowhead-cyan" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+                <path d="M0,0 L6,3 L0,6 Z" fill="#0099bb"/>
+              </marker>
+            </defs>
+            <!-- Healthy check -->
+            <line x1="5" y1="20" x2="55" y2="20" stroke="#546e7a" stroke-width="1.5"
+                  stroke-dasharray="5,3" marker-end="url(#arrowhead)" class="flow-arrow"/>
+            <text x="30" y="14" text-anchor="middle" fill="#546e7a" font-size="7">health check</text>
+            <!-- AppRole creds -->
+            <line x1="55" y1="45" x2="5" y2="45" stroke="#0099bb" stroke-width="1.5"
+                  stroke-dasharray="5,3" marker-end="url(#arrowhead-cyan)" class="flow-arrow"/>
+            <text x="30" y="56" text-anchor="middle" fill="#0099bb" font-size="7">AppRole login</text>
+            <text x="30" y="65" text-anchor="middle" fill="#0099bb" font-size="7">→ token + key</text>
+          </svg>
+        </div>
+
+        <!-- Init + App -->
+        <div class="arch-col">
+          <div class="arch-container init">
+            <div class="arch-container-title">⚡ Init Sidecar</div>
+            <div class="arch-container-port">one-shot · runs once at startup</div>
+            <div class="arch-container-detail">
+              1. Wait for OpenBao<br>
+              2. Enable KV v2 engine<br>
+              3. Generate Fernet key (32B random)<br>
+              4. Store key in OpenBao<br>
+              5. Create policy + AppRole<br>
+              6. Write role_id + secret_id<br>
+              &nbsp;&nbsp;&nbsp;→ approle-creds volume
+            </div>
+          </div>
+
+          <div style="text-align:center; padding:0.4rem 0; color:var(--text-dim); font-size:0.75rem;">
+            ↓ AppRole creds (UUIDs only)
+          </div>
+
+          <div class="arch-container app">
+            <div class="arch-container-title">🤖 OpenClaw App</div>
+            <div class="arch-container-port">:8300 → Flask API</div>
+            <div class="arch-container-detail">
+              Reads role_id + secret_id<br>
+              AppRole login → token<br>
+              Fetch Fernet key → RAM only<br>
+              Start dead man's switch<br>
+              Serve session management API<br>
+              SIGTERM → shred + exit
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Volumes panel -->
+      <div class="arch-volumes-panel">
+        <div class="arch-volumes-title">Mount Points — Storage Map</div>
+        <div class="arch-mount-grid">
+          <div class="arch-mount ram">
+            <div class="arch-mount-path">/openclaw/sessions/</div>
+            <div class="arch-mount-desc">
+              <span class="pill pill-green">tmpfs · RAM</span><br>
+              Active conversations. 64MB cap. Never written to host filesystem.
+              Wiped on container stop. In-process dict + tmpfs file.
+            </div>
+          </div>
+          <div class="arch-mount ram">
+            <div class="arch-mount-path">/openclaw/secrets/</div>
+            <div class="arch-mount-desc">
+              <span class="pill pill-green">tmpfs · RAM</span><br>
+              API keys and manifest fetched from OpenBao. 10MB cap.
+              Contains no actual key values — just manifest metadata.
+            </div>
+          </div>
+          <div class="arch-mount ram">
+            <div class="arch-mount-path">/openclaw/cache/</div>
+            <div class="arch-mount-desc">
+              <span class="pill pill-green">tmpfs · RAM</span><br>
+              Model cache and temp files. 128MB cap.
+              Transient computation scratch space.
+            </div>
+          </div>
+          <div class="arch-mount enc">
+            <div class="arch-mount-path">/openclaw/workspace/</div>
+            <div class="arch-mount-desc">
+              <span class="pill pill-cyan">Named Volume · Encrypted</span><br>
+              Persistent session data. Fernet ciphertext only.
+              Survives container restarts. Shredded on SIGTERM.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Data flow legend -->
+      <div class="arch-flow">
+        <div class="arch-flow-title">Data Flow: OpenBao → AppRole → Fernet → Workspace</div>
+        <svg class="flow-svg" height="60" viewBox="0 0 900 60" preserveAspectRatio="xMinYMid meet">
+          <defs>
+            <marker id="fa" markerWidth="7" markerHeight="7" refX="4" refY="3.5" orient="auto">
+              <path d="M0,0 L7,3.5 L0,7 Z" fill="#00d4ff" opacity="0.8"/>
+            </marker>
+          </defs>
+          <!-- OpenBao node -->
+          <rect x="0" y="15" width="110" height="30" rx="6" fill="rgba(176,96,255,0.15)" stroke="rgba(176,96,255,0.5)" stroke-width="1"/>
+          <text x="55" y="33" text-anchor="middle" fill="#b060ff" font-size="11" font-weight="700" font-family="system-ui">OpenBao KV</text>
+
+          <line x1="112" y1="30" x2="168" y2="30" stroke="#00d4ff" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#fa)" class="flow-arrow"/>
+          <text x="140" y="23" text-anchor="middle" fill="#546e7a" font-size="9" font-family="system-ui">AppRole</text>
+
+          <!-- Token -->
+          <rect x="170" y="15" width="100" height="30" rx="6" fill="rgba(0,212,255,0.1)" stroke="rgba(0,212,255,0.4)" stroke-width="1"/>
+          <text x="220" y="33" text-anchor="middle" fill="#00d4ff" font-size="11" font-weight="700" font-family="system-ui">Short Token</text>
+
+          <line x1="272" y1="30" x2="328" y2="30" stroke="#00d4ff" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#fa)" class="flow-arrow"/>
+          <text x="300" y="23" text-anchor="middle" fill="#546e7a" font-size="9" font-family="system-ui">fetch key</text>
+
+          <!-- Fernet Key -->
+          <rect x="330" y="8" width="120" height="44" rx="6" fill="rgba(0,255,136,0.08)" stroke="rgba(0,255,136,0.4)" stroke-width="1.5"/>
+          <text x="390" y="28" text-anchor="middle" fill="#00ff88" font-size="11" font-weight="700" font-family="system-ui">Fernet Key</text>
+          <text x="390" y="43" text-anchor="middle" fill="#00aa55" font-size="9" font-family="system-ui">(RAM only)</text>
+
+          <line x1="452" y1="30" x2="508" y2="30" stroke="#00d4ff" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#fa)" class="flow-arrow"/>
+          <text x="480" y="23" text-anchor="middle" fill="#546e7a" font-size="9" font-family="system-ui">encrypt</text>
+
+          <!-- Ciphertext -->
+          <rect x="510" y="15" width="110" height="30" rx="6" fill="rgba(0,212,255,0.07)" stroke="rgba(0,212,255,0.3)" stroke-width="1"/>
+          <text x="565" y="33" text-anchor="middle" fill="#0099bb" font-size="11" font-weight="700" font-family="system-ui">Ciphertext</text>
+
+          <line x1="622" y1="30" x2="678" y2="30" stroke="#00d4ff" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#fa)" class="flow-arrow"/>
+          <text x="650" y="23" text-anchor="middle" fill="#546e7a" font-size="9" font-family="system-ui">write</text>
+
+          <!-- Workspace -->
+          <rect x="680" y="10" width="120" height="40" rx="6" fill="rgba(0,212,255,0.06)" stroke="rgba(0,212,255,0.25)" stroke-width="1"/>
+          <text x="740" y="28" text-anchor="middle" fill="#00b8d9" font-size="11" font-weight="700" font-family="system-ui">workspace/</text>
+          <text x="740" y="43" text-anchor="middle" fill="#546e7a" font-size="9" font-family="system-ui">.enc only</text>
+        </svg>
+      </div>
+
+    </div><!-- .arch-host -->
+  </div><!-- .arch-diagram -->
+
+  <div class="callout warning">
+    <span class="callout-icon">⚠️</span>
+    <span class="callout-text">
+      <strong>The Fernet key never touches disk.</strong> It exists only in the Python process heap,
+      fetched from OpenBao at startup. The <code>approle-creds</code> shared volume contains only
+      UUID-format credentials (role_id + secret_id) — not the actual encryption key or API secrets.
+    </span>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- SECTION 3: SECURITY LAYERS -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<section id="security">
+  <h2><span class="section-num">3</span> Security Layers</h2>
+
+  <p>
+    Eight independent security layers, each defending against a different attack surface.
+    Compromise of any single layer does not yield plaintext data or persistent access.
+  </p>
+
+  <!-- Layer 1: Fernet -->
+  <div class="sec-layer green">
+    <div class="sec-layer-header">
+      <div class="sec-layer-icon">🔑</div>
+      <div>
+        <div class="sec-layer-title">Fernet Encryption — Crown Jewel</div>
+        <div class="sec-layer-subtitle">HMAC-SHA256 + AES-128-CBC · Authenticated encryption</div>
+      </div>
+      <span class="pill pill-green" style="margin-left:auto">Layer 1</span>
+    </div>
+    <div class="sec-layer-body">
+      <p>
+        All persistent session data is encrypted with a Fernet key before any bytes touch the
+        workspace volume. Fernet provides <em>authenticated</em> encryption — tampered ciphertext
+        is rejected with <code>InvalidToken</code> before any data is returned.
+      </p>
+      <p>
+        The token format is <code>gAAAAA...</code> (base64url), self-describing with a timestamp.
+        The 32-byte key is generated fresh on every <code>openbao-init</code> run using
+        <code>/dev/urandom</code>.
+      </p>
+      <div class="detail-grid">
+        <span class="detail-label">Algorithm</span>
+        <span class="detail-val">AES-128-CBC + HMAC-SHA256 (cryptography.fernet)</span>
+        <span class="detail-label">Key size</span>
+        <span class="detail-val">32 bytes (256-bit) — base64url-encoded to 44 chars</span>
+        <span class="detail-label">Key source</span>
+        <span class="detail-val">OpenBao KV: kv/openclaw/encryption.fernet_key</span>
+        <span class="detail-label">Key storage</span>
+        <span class="detail-val">Python heap only — never written to any file</span>
+        <span class="detail-label">Key lifetime</span>
+        <span class="detail-val">Wiped on dead man's switch or SIGTERM</span>
+        <span class="detail-label">Key rotation</span>
+        <span class="detail-val">Re-run openbao-init → new key → existing data unreadable</span>
+        <span class="detail-label">Token prefix</span>
+        <span class="detail-val">gAAAAA (indicates valid Fernet token format)</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Layer 2: tmpfs RAM isolation -->
+  <div class="sec-layer green">
+    <div class="sec-layer-header">
+      <div class="sec-layer-icon">🧠</div>
+      <div>
+        <div class="sec-layer-title">tmpfs RAM Isolation</div>
+        <div class="sec-layer-subtitle">Sessions, secrets, and cache live in RAM — never on disk</div>
+      </div>
+      <span class="pill pill-green" style="margin-left:auto">Layer 2</span>
+    </div>
+    <div class="sec-layer-body">
+      <p>
+        Three mount points are configured as <code>tmpfs</code> (Linux RAM-backed filesystem).
+        Data written to these paths never touches the host's physical storage.
+        When the container stops or is killed, all contents are immediately gone — no forensic recovery possible.
+      </p>
+      <div class="detail-grid">
+        <span class="detail-label">/openclaw/sessions</span>
+        <span class="detail-val">64MB tmpfs — active conversations (plaintext, RAM only)</span>
+        <span class="detail-label">/openclaw/secrets</span>
+        <span class="detail-val">10MB tmpfs — manifest only (actual secrets in Python heap)</span>
+        <span class="detail-label">/openclaw/cache</span>
+        <span class="detail-val">128MB tmpfs — model cache, temp computation</span>
+        <span class="detail-label">/tmp</span>
+        <span class="detail-val">32MB tmpfs — gunicorn/Flask runtime scratch</span>
+        <span class="detail-label">Verification</span>
+        <span class="detail-val">GET /status → mounts.tmpfs_mounts[path].is_tmpfs=true</span>
+      </div>
+      <div class="callout success" style="margin-top:1rem">
+        <span class="callout-icon">✅</span>
+        <span class="callout-text">
+          Active session data (<code>POST /session/active</code>) is stored in <em>both</em>
+          the Python in-process dict and the tmpfs filesystem — dual RAM isolation.
+          Neither location persists across a container restart.
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Layer 3: Dead man's switch -->
+  <div class="sec-layer cyan">
+    <div class="sec-layer-header">
+      <div class="sec-layer-icon">💀</div>
+      <div>
+        <div class="sec-layer-title">Dead Man's Switch</div>
+        <div class="sec-layer-subtitle">3 consecutive OpenBao failures → wipe all secrets from RAM</div>
+      </div>
+      <span class="pill pill-cyan" style="margin-left:auto">Layer 3</span>
+    </div>
+    <div class="sec-layer-body">
+      <p>
+        A background daemon thread polls OpenBao's <code>/v1/sys/health</code> every
+        <code>HEARTBEAT_INTERVAL</code> seconds (default 30s). If the health check fails
+        three consecutive times, <strong>all in-memory secrets are atomically wiped</strong>:
+        Fernet key, API keys, config, and token are zeroed out.
+      </p>
+      <p>
+        If OpenBao comes back online, the daemon automatically re-authenticates via AppRole
+        and re-fetches all secrets — no manual restart required.
+      </p>
+      <div class="detail-grid">
+        <span class="detail-label">Check interval</span>
+        <span class="detail-val">30s (configurable via HEARTBEAT_INTERVAL env var)</span>
+        <span class="detail-label">Threshold</span>
+        <span class="detail-val">3 consecutive failures before wipe</span>
+        <span class="detail-label">Wipe scope</span>
+        <span class="detail-val">Fernet key, API keys, config, auth token — all secrets</span>
+        <span class="detail-label">Recovery</span>
+        <span class="detail-val">Automatic re-auth + re-fetch when OpenBao returns</span>
+        <span class="detail-label">Wipe count</span>
+        <span class="detail-val">Tracked in GET /status → dead_mans_switch.wipe_count</span>
+        <span class="detail-label">Log message</span>
+        <span class="detail-val">💀 DEAD MAN'S SWITCH — wiped all secrets from memory</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Layer 4: SIGTERM shred trap -->
+  <div class="sec-layer cyan">
+    <div class="sec-layer-header">
+      <div class="sec-layer-icon">🔥</div>
+      <div>
+        <div class="sec-layer-title">SIGTERM / SIGINT Shred Trap</div>
+        <div class="sec-layer-subtitle">Container stop → 3-pass overwrite → unlink → exit</div>
+      </div>
+      <span class="pill pill-cyan" style="margin-left:auto">Layer 4</span>
+    </div>
+    <div class="sec-layer-body">
+      <p>
+        Python <code>signal.signal(SIGTERM, _shutdown_handler)</code> registers a cleanup routine.
+        When Docker sends SIGTERM (on <code>docker stop</code> or <code>docker compose down</code>),
+        the handler fires <em>before</em> the process exits.
+      </p>
+      <p>
+        The 3-pass overwrite pattern (zeros → ones → <code>0xa5</code>) follows the DoD 5220.22-M
+        pattern. On SSDs, the OS may remap writes to different physical cells, but this is the best
+        achievable at the software layer without hardware-level secure erase.
+        On tmpfs mounts, overwrite + unlink is an effective wipe (no underlying persistent storage).
+      </p>
+
+      <div class="code-block">
+        <span class="code-lang">python</span>
+        <pre><span class="t-cmt"># 3-pass overwrite before unlink</span>
+<span class="t-kw">with</span> <span class="t-fn">open</span>(path, <span class="t-str">"r+b"</span>) <span class="t-kw">as</span> f:
+    <span class="t-cmt"># Pass 1: zeros</span>
+    f.<span class="t-fn">seek</span>(<span class="t-num">0</span>); f.<span class="t-fn">write</span>(<span class="t-str">b'\x00'</span> * size); os.<span class="t-fn">fsync</span>(f.<span class="t-fn">fileno</span>())
+    <span class="t-cmt"># Pass 2: ones</span>
+    f.<span class="t-fn">seek</span>(<span class="t-num">0</span>); f.<span class="t-fn">write</span>(<span class="t-str">b'\xff'</span> * size); os.<span class="t-fn">fsync</span>(f.<span class="t-fn">fileno</span>())
+    <span class="t-cmt"># Pass 3: 0xa5 pattern</span>
+    f.<span class="t-fn">seek</span>(<span class="t-num">0</span>); f.<span class="t-fn">write</span>(<span class="t-str">b'\xa5'</span> * size); os.<span class="t-fn">fsync</span>(f.<span class="t-fn">fileno</span>())
+path.<span class="t-fn">unlink</span>()  <span class="t-cmt"># remove directory entry</span></pre>
+      </div>
+
+      <div class="detail-grid">
+        <span class="detail-label">Triggers</span>
+        <span class="detail-val">SIGTERM (docker stop), SIGINT (Ctrl+C)</span>
+        <span class="detail-label">Shred order</span>
+        <span class="detail-val">1. wipe_secrets() 2. shred_workspace() 3. wipe tmpfs files</span>
+        <span class="detail-label">Passes</span>
+        <span class="detail-val">3 (zeros, ones, 0xa5) + fsync after each</span>
+        <span class="detail-label">Scope</span>
+        <span class="detail-val">All .enc files in /openclaw/workspace/**</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Layer 5: Read-only rootfs -->
+  <div class="sec-layer gold">
+    <div class="sec-layer-header">
+      <div class="sec-layer-icon">🔒</div>
+      <div>
+        <div class="sec-layer-title">Read-Only Root Filesystem</div>
+        <div class="sec-layer-subtitle">Immutable container image at runtime</div>
+      </div>
+      <span class="pill pill-cyan" style="margin-left:auto">Layer 5</span>
+    </div>
+    <div class="sec-layer-body">
+      <p>
+        <code>read_only: true</code> in <code>docker-compose.yml</code> mounts the container's
+        root filesystem as read-only. Any attempt to write to paths not explicitly listed as
+        volumes or tmpfs mounts fails with <code>EROFS</code>.
+      </p>
+      <p>
+        Writable paths are explicitly declared: the four <code>/openclaw/*</code> paths,
+        <code>/tmp</code>, <code>/app/__pycache__</code>, and <code>/var/run</code> — all
+        either tmpfs (ephemeral) or declared volumes (workspace).
+      </p>
+      <div class="detail-grid">
+        <span class="detail-label">Docker Compose</span>
+        <span class="detail-val">read_only: true</span>
+        <span class="detail-label">Effect</span>
+        <span class="detail-val">Root filesystem immutable — writes to unspecified paths fail</span>
+        <span class="detail-label">Prevents</span>
+        <span class="detail-val">Malicious code writing secrets to image layers</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Layer 6: Non-root execution -->
+  <div class="sec-layer gold">
+    <div class="sec-layer-header">
+      <div class="sec-layer-icon">👤</div>
+      <div>
+        <div class="sec-layer-title">Non-Root Execution (UID 10001)</div>
+        <div class="sec-layer-subtitle">Privilege drop via os.setuid() at startup</div>
+      </div>
+      <span class="pill pill-cyan" style="margin-left:auto">Layer 6</span>
+    </div>
+    <div class="sec-layer-body">
+      <p>
+        The Dockerfile creates a dedicated <code>openclaw</code> user (UID/GID 10001).
+        The container starts as root (to <code>chown</code> tmpfs mount points), then the
+        entrypoint drops to UID 10001 before executing the Flask application.
+      </p>
+      <p>
+        Combined with <code>no-new-privileges: true</code>, the app cannot escalate back to root
+        via setuid binaries or other privilege escalation vectors.
+      </p>
+      <div class="detail-grid">
+        <span class="detail-label">UID/GID</span>
+        <span class="detail-val">10001 / 10001 (openclaw:openclaw group)</span>
+        <span class="detail-label">Drop mechanism</span>
+        <span class="detail-val">Entrypoint chown → exec as UID 10001</span>
+        <span class="detail-label">Capabilities</span>
+        <span class="detail-val">cap_drop ALL; cap_add SETUID, SETGID, CHOWN, DAC_OVERRIDE</span>
+        <span class="detail-label">Escalation</span>
+        <span class="detail-val">security_opt: no-new-privileges:true blocks setuid escalation</span>
+        <span class="detail-label">Verification</span>
+        <span class="detail-val">GET /status → security.uid = 10001 (never 0)</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Layer 7: AppRole least-privilege -->
+  <div class="sec-layer purple">
+    <div class="sec-layer-header">
+      <div class="sec-layer-icon">🎭</div>
+      <div>
+        <div class="sec-layer-title">AppRole Least-Privilege Auth</div>
+        <div class="sec-layer-subtitle">No root token in app — machine auth with read-only policy</div>
+      </div>
+      <span class="pill pill-purple" style="margin-left:auto">Layer 7</span>
+    </div>
+    <div class="sec-layer-body">
+      <p>
+        The app never sees the OpenBao root token. It authenticates via AppRole: reading a
+        <code>role_id</code> + <code>secret_id</code> (UUID-format, not secrets) from a shared
+        volume written by the init container. These credentials produce a short-lived token
+        (1h TTL, 4h max) with read-only access to exactly three KV paths.
+      </p>
+      <div class="detail-grid">
+        <span class="detail-label">Auth method</span>
+        <span class="detail-val">auth/approle/login (role_id + secret_id → token)</span>
+        <span class="detail-label">Token TTL</span>
+        <span class="detail-val">1h renewable (max 4h)</span>
+        <span class="detail-label">Policy</span>
+        <span class="detail-val">openclaw-policy: read kv/openclaw/{encryption,api-keys,config}</span>
+        <span class="detail-label">Capabilities</span>
+        <span class="detail-val">read only — no write, no delete, no admin paths</span>
+        <span class="detail-label">Token renewal</span>
+        <span class="detail-val">Dead man's switch renews token before expiry; re-auths if needed</span>
+        <span class="detail-label">Root token</span>
+        <span class="detail-val">NOT present in app container environment</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Layer 8: No secrets in env/image -->
+  <div class="sec-layer purple">
+    <div class="sec-layer-header">
+      <div class="sec-layer-icon">🚫</div>
+      <div>
+        <div class="sec-layer-title">Zero Secrets in Env Vars / Image Layers</div>
+        <div class="sec-layer-subtitle">All secrets fetched at runtime — never baked in</div>
+      </div>
+      <span class="pill pill-purple" style="margin-left:auto">Layer 8</span>
+    </div>
+    <div class="sec-layer-body">
+      <p>
+        Docker images are immutable and their layer history is inspectable.
+        Any secret baked into a <code>ENV</code> directive or <code>RUN</code> command
+        is permanently readable from the image. This design bakes in zero secret material.
+      </p>
+      <p>
+        The Dockerfile <code>ENV</code> directives contain only non-secret configuration:
+        <code>BAO_ADDR</code> (just an address), <code>FLASK_ENV</code>, and <code>PYTHONUNBUFFERED</code>.
+        The actual Fernet key, API keys, and JWT secrets exist nowhere in the image or environment —
+        they are fetched live from OpenBao on every startup.
+      </p>
+      <div class="detail-grid">
+        <span class="detail-label">Image layers</span>
+        <span class="detail-val">No FERNET_KEY, no API keys, no secrets of any kind</span>
+        <span class="detail-label">docker inspect env</span>
+        <span class="detail-val">Contains only non-secret config (addresses, log levels)</span>
+        <span class="detail-label">/proc/1/environ</span>
+        <span class="detail-val">No secret material — verified by test suite (Test 4)</span>
+        <span class="detail-label">Secret acquisition</span>
+        <span class="detail-val">AppRole login at startup → Fernet key stored in Python heap</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- SECTION 4: CONTAINER DETAILS -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<section id="containers">
+  <h2><span class="section-num">4</span> Container Details</h2>
+
+  <!-- OpenBao -->
+  <div class="container-card">
+    <div class="container-card-header">
+      <span class="container-badge badge-openbao">OpenBao</span>
+      <div class="container-name">openclaw-openbao</div>
+      <div class="container-port">:8210 host → :8200 internal</div>
+    </div>
+    <div class="container-body">
+      <p>
+        Open-source fork of HashiCorp Vault. Runs in dev mode with an in-memory backend
+        (appropriate for testing; production would use a persistent backend like Raft or Consul).
+        The root token is <code>root-token-for-testing</code> — used only by the init container,
+        never exposed to the app.
+      </p>
+
+      <h4>Secrets Stored</h4>
+      <table class="mini-table">
+        <thead>
+          <tr><th>Path</th><th>Keys</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>kv/openclaw/encryption</td>
+            <td>fernet_key, key_version, created_at</td>
+            <td>Crown jewel — Fernet encryption key for session data</td>
+          </tr>
+          <tr>
+            <td>kv/openclaw/api-keys</td>
+            <td>anthropic_key, openai_key, telegram_token</td>
+            <td>Simulated API keys (replace with real values in production)</td>
+          </tr>
+          <tr>
+            <td>kv/openclaw/config</td>
+            <td>jwt_secret, session_secret, workspace_path, log_level</td>
+            <td>Runtime configuration — JWT signing, paths, logging</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h4>Health Check</h4>
+      <div class="code-block">
+        <pre>wget --quiet --spider http://127.0.0.1:8200/v1/sys/health
+<span class="t-cmt"># interval: 5s | timeout: 3s | retries: 10 | start_period: 5s</span></pre>
+      </div>
+
+      <h4>AppRole Configuration</h4>
+      <table class="mini-table">
+        <thead>
+          <tr><th>Setting</th><th>Value</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>role name</td><td>openclaw-role</td></tr>
+          <tr><td>token_policies</td><td>openclaw-policy</td></tr>
+          <tr><td>token_ttl</td><td>1h</td></tr>
+          <tr><td>token_max_ttl</td><td>4h</td></tr>
+          <tr><td>secret_id_ttl</td><td>24h</td></tr>
+          <tr><td>secret_id_num_uses</td><td>0 (unlimited)</td></tr>
+          <tr><td>bind_secret_id</td><td>true</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Init container -->
+  <div class="container-card">
+    <div class="container-card-header">
+      <span class="container-badge badge-init">Init Sidecar</span>
+      <div class="container-name">openclaw-openbao-init</div>
+      <div class="container-port">one-shot · exits after setup</div>
+    </div>
+    <div class="container-body">
+      <p>
+        A one-shot initialization container that bootstraps OpenBao's secrets and AppRole
+        configuration. Uses the same OpenBao image — no extra tooling required.
+        Runs to completion then exits with code 0, which satisfies the
+        <code>condition: service_completed_successfully</code> dependency in docker-compose.
+      </p>
+
+      <h4>Init Steps (7 phases)</h4>
+      <div class="boot-seq">
+        <div class="boot-step s1">
+          <div class="boot-dot">1</div>
+          <div class="boot-content">
+            <div class="boot-title">Wait for OpenBao</div>
+            <div class="boot-desc">Poll /v1/sys/health until ready (30 attempts, 2s apart)</div>
+          </div>
+        </div>
+        <div class="boot-step s2">
+          <div class="boot-dot">2</div>
+          <div class="boot-content">
+            <div class="boot-title">Enable KV v2 Engine</div>
+            <div class="boot-desc">Enable KV v2 at path <code>kv/</code> (skips if already mounted)</div>
+          </div>
+        </div>
+        <div class="boot-step s3">
+          <div class="boot-dot">3</div>
+          <div class="boot-content">
+            <div class="boot-title">Generate Fernet Key</div>
+            <div class="boot-desc">
+              32 bytes from <code>/dev/urandom</code> → base64url-encode → store at
+              <code>kv/openclaw/encryption</code>. Key is 44 chars, URL-safe, fresh on every init run.
+            </div>
+          </div>
+        </div>
+        <div class="boot-step s3">
+          <div class="boot-dot">4</div>
+          <div class="boot-content">
+            <div class="boot-title">Write App Secrets</div>
+            <div class="boot-desc">
+              Generate simulated API keys (openssl rand -hex), JWT secrets, and config.
+              Write to <code>kv/openclaw/api-keys</code> and <code>kv/openclaw/config</code>.
+            </div>
+          </div>
+        </div>
+        <div class="boot-step s4">
+          <div class="boot-dot">5</div>
+          <div class="boot-content">
+            <div class="boot-title">Create OpenClaw Policy</div>
+            <div class="boot-desc">
+              HCL policy granting read access to encryption, api-keys, and config paths.
+              Also allows token self-renewal and self-lookup. No write or admin access.
+            </div>
+          </div>
+        </div>
+        <div class="boot-step s4">
+          <div class="boot-dot">6</div>
+          <div class="boot-content">
+            <div class="boot-title">Configure AppRole</div>
+            <div class="boot-desc">
+              Enable AppRole auth method, create <code>openclaw-role</code> with
+              <code>openclaw-policy</code>, generate role_id and secret_id.
+            </div>
+          </div>
+        </div>
+        <div class="boot-step s5">
+          <div class="boot-dot">7</div>
+          <div class="boot-content">
+            <div class="boot-title">Write Credentials to Shared Volume</div>
+            <div class="boot-desc">
+              Save <code>role_id</code> and <code>secret_id</code> to <code>/approle-creds/</code>
+              (named volume shared with app). These are UUID-format identifiers — not secrets.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- App container -->
+  <div class="container-card">
+    <div class="container-card-header">
+      <span class="container-badge badge-app">App</span>
+      <div class="container-name">openclaw-app</div>
+      <div class="container-port">:8300 · Flask API</div>
+    </div>
+    <div class="container-body">
+      <p>
+        The OpenClaw agent simulator. Python 3.12 on <code>python:3.12-slim</code>.
+        Runs as UID 10001 with a read-only root filesystem, all capabilities dropped,
+        and no secrets in the environment. Handles session encryption/decryption,
+        active session RAM storage, and the dead man's switch background thread.
+      </p>
+
+      <h4>Security Options (docker-compose)</h4>
+      <div class="code-block">
+        <span class="code-lang">yaml</span>
+        <pre><span class="t-key">read_only:</span> <span class="t-bln">true</span>                <span class="t-cmt"># immutable rootfs</span>
+<span class="t-key">cap_drop:</span> [<span class="t-str">ALL</span>]               <span class="t-cmt"># drop all Linux capabilities</span>
+<span class="t-key">cap_add:</span>                        <span class="t-cmt"># only what's needed for entrypoint</span>
+  - <span class="t-str">SETUID</span>
+  - <span class="t-str">SETGID</span>
+  - <span class="t-str">CHOWN</span>
+  - <span class="t-str">DAC_OVERRIDE</span>
+<span class="t-key">security_opt:</span>
+  - <span class="t-str">no-new-privileges:true</span>    <span class="t-cmt"># prevent privilege escalation</span>
+<span class="t-key">restart:</span> <span class="t-str">on-failure:3</span>          <span class="t-cmt"># auto-restart on crash</span></pre>
+      </div>
+
+      <h4>Health Check</h4>
+      <div class="code-block">
+        <pre>python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8300/health')"
+<span class="t-cmt"># interval: 15s | timeout: 5s | start_period: 45s | retries: 3</span>
+<span class="t-cmt"># Returns 200 only when Fernet key is loaded and encryption is working</span></pre>
+      </div>
+
+      <h4>Key Classes</h4>
+      <table class="mini-table">
+        <thead>
+          <tr><th>Class / Function</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>SecureState</td><td>Thread-safe container for Fernet key, tokens, API keys, active sessions</td></tr>
+          <tr><td>secure_delete()</td><td>3-pass overwrite + unlink for workspace files</td></tr>
+          <tr><td>shred_workspace()</td><td>Recursive secure delete of all .enc files on shutdown</td></tr>
+          <tr><td>dead_mans_switch()</td><td>Background thread — health check loop with wipe on failure</td></tr>
+          <tr><td>authenticate_approle()</td><td>AppRole login → short-lived token → store in SecureState</td></tr>
+          <tr><td>fetch_all_secrets()</td><td>Fetch Fernet key + API keys + config from OpenBao</td></tr>
+          <tr><td>workspace_save/load/delete()</td><td>Encrypted session persistence operations</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- SECTION 5: API REFERENCE -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<section id="api">
+  <h2><span class="section-num">5</span> API Reference</h2>
+
+  <p>All endpoints run on <code>:8300</code>. No authentication required (this is a local-only
+  design — add mTLS or API tokens for production exposure). No endpoint exposes key material.</p>
+
+  <!-- GET /health -->
+  <div class="api-endpoint">
+    <div class="api-endpoint-header">
+      <span class="http-method method-get">GET</span>
+      <span class="api-path">/health</span>
+      <span class="api-summary">Encryption and mount status check</span>
+    </div>
+    <div class="api-body">
+      <p class="api-desc">
+        Returns <code>200 OK</code> when the Fernet key is loaded and all three tmpfs mounts are active.
+        Returns <code>503</code> if the Fernet key is absent (dead man's switch triggered or startup failed).
+        Never exposes the actual key — only confirms presence and source.
+      </p>
+      <div class="response-label">200 Response</div>
+      <div class="code-block">
+        <span class="code-lang">json</span>
+        <pre>{
+  <span class="t-key">"status"</span>: <span class="t-str">"healthy"</span>,
+  <span class="t-key">"encryption"</span>: <span class="t-bln">true</span>,
+  <span class="t-key">"fernet_key_source"</span>: <span class="t-str">"openbao (not hardcoded)"</span>,
+  <span class="t-key">"sessions"</span>: {
+    <span class="t-key">"active_count"</span>: <span class="t-num">2</span>,
+    <span class="t-key">"workspace_count"</span>: <span class="t-num">5</span>
+  },
+  <span class="t-key">"storage"</span>: {
+    <span class="t-key">"sessions_tmpfs"</span>: <span class="t-bln">true</span>,
+    <span class="t-key">"secrets_tmpfs"</span>: <span class="t-bln">true</span>,
+    <span class="t-key">"cache_tmpfs"</span>: <span class="t-bln">true</span>
+  }
+}</pre>
+      </div>
+      <div class="response-label">503 Response (key missing)</div>
+      <div class="code-block">
+        <span class="code-lang">json</span>
+        <pre>{
+  <span class="t-key">"status"</span>: <span class="t-str">"unhealthy"</span>,
+  <span class="t-key">"reason"</span>: <span class="t-str">"Fernet key not loaded (OpenBao unreachable or startup failed)"</span>,
+  <span class="t-key">"encryption"</span>: <span class="t-bln">false</span>
+}</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- GET /status -->
+  <div class="api-endpoint">
+    <div class="api-endpoint-header">
+      <span class="http-method method-get">GET</span>
+      <span class="api-path">/status</span>
+      <span class="api-summary">Detailed status — mounts, encryption, session counts, security info</span>
+    </div>
+    <div class="api-body">
+      <p class="api-desc">
+        Comprehensive status including mount filesystem types, session counts, OpenBao reachability,
+        dead man's switch wipe count, and runtime security attributes (UID, capabilities).
+        Shows API key <em>names</em> (for verification) but never their values.
+      </p>
+      <div class="response-label">200 Response</div>
+      <div class="code-block">
+        <span class="code-lang">json</span>
+        <pre>{
+  <span class="t-key">"app"</span>: <span class="t-str">"openclaw-secure-agent"</span>,
+  <span class="t-key">"timestamp"</span>: <span class="t-str">"2026-03-26T20:00:00Z"</span>,
+  <span class="t-key">"openbao"</span>: {
+    <span class="t-key">"address"</span>: <span class="t-str">"http://openbao:8200"</span>,
+    <span class="t-key">"reachable"</span>: <span class="t-bln">true</span>,
+    <span class="t-key">"healthy"</span>: <span class="t-bln">true</span>
+  },
+  <span class="t-key">"encryption"</span>: {
+    <span class="t-key">"fernet_key_loaded"</span>: <span class="t-bln">true</span>,
+    <span class="t-key">"fernet_key_source"</span>: <span class="t-str">"openbao-approle"</span>,
+    <span class="t-key">"api_key_names"</span>: [<span class="t-str">"anthropic_key"</span>, <span class="t-str">"openai_key"</span>, <span class="t-str">"telegram_token"</span>]
+  },
+  <span class="t-key">"sessions"</span>: {
+    <span class="t-key">"active_count"</span>: <span class="t-num">0</span>,
+    <span class="t-key">"workspace_count"</span>: <span class="t-num">3</span>
+  },
+  <span class="t-key">"mounts"</span>: {
+    <span class="t-key">"tmpfs_mounts"</span>: {
+      <span class="t-key">"/openclaw/sessions"</span>: { <span class="t-key">"fstype"</span>: <span class="t-str">"tmpfs"</span>, <span class="t-key">"is_tmpfs"</span>: <span class="t-bln">true</span> },
+      <span class="t-key">"/openclaw/secrets"</span>:  { <span class="t-key">"fstype"</span>: <span class="t-str">"tmpfs"</span>, <span class="t-key">"is_tmpfs"</span>: <span class="t-bln">true</span> },
+      <span class="t-key">"/openclaw/cache"</span>:    { <span class="t-key">"fstype"</span>: <span class="t-str">"tmpfs"</span>, <span class="t-key">"is_tmpfs"</span>: <span class="t-bln">true</span> }
+    },
+    <span class="t-key">"workspace"</span>: { <span class="t-key">"path"</span>: <span class="t-str">"/openclaw/workspace"</span>, <span class="t-key">"note"</span>: <span class="t-str">"Fernet encryption applied"</span> }
+  },
+  <span class="t-key">"dead_mans_switch"</span>: {
+    <span class="t-key">"heartbeat_interval_s"</span>: <span class="t-num">30</span>,
+    <span class="t-key">"wipe_count"</span>: <span class="t-num">0</span>
+  },
+  <span class="t-key">"security"</span>: {
+    <span class="t-key">"uid"</span>: <span class="t-num">10001</span>,
+    <span class="t-key">"shred_on_exit"</span>: <span class="t-bln">true</span>,
+    <span class="t-key">"no_disk_secrets"</span>: <span class="t-bln">true</span>
+  }
+}</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- POST /session/save -->
+  <div class="api-endpoint">
+    <div class="api-endpoint-header">
+      <span class="http-method method-post">POST</span>
+      <span class="api-path">/session/save</span>
+      <span class="api-summary">Encrypt + persist session to workspace volume</span>
+    </div>
+    <div class="api-body">
+      <p class="api-desc">
+        Encrypts the provided data with the Fernet key (from OpenBao) and writes it to
+        <code>/openclaw/workspace/session_{id}.enc</code>. The volume contains only Fernet
+        ciphertext — no plaintext. Returns 503 if the key isn't loaded.
+        Session IDs must be alphanumeric + hyphens/underscores, max 128 chars.
+      </p>
+      <div class="response-label">Request</div>
+      <div class="code-block">
+        <span class="code-lang">json</span>
+        <pre>{ <span class="t-key">"session_id"</span>: <span class="t-str">"sess-123"</span>, <span class="t-key">"data"</span>: <span class="t-str">"any string data"</span> }</pre>
+      </div>
+      <div class="response-label">200 Response</div>
+      <div class="code-block">
+        <span class="code-lang">json</span>
+        <pre>{
+  <span class="t-key">"status"</span>: <span class="t-str">"saved"</span>,
+  <span class="t-key">"session_id"</span>: <span class="t-str">"sess-123"</span>,
+  <span class="t-key">"storage"</span>: <span class="t-str">"workspace (encrypted)"</span>,
+  <span class="t-key">"encrypted"</span>: <span class="t-bln">true</span>,
+  <span class="t-key">"key_source"</span>: <span class="t-str">"openbao"</span>,
+  <span class="t-key">"note"</span>: <span class="t-str">"Data encrypted with Fernet before disk write"</span>
+}</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- GET /session/load -->
+  <div class="api-endpoint">
+    <div class="api-endpoint-header">
+      <span class="http-method method-get">GET</span>
+      <span class="api-path">/session/load/&lt;id&gt;</span>
+      <span class="api-summary">Decrypt + return session from workspace volume</span>
+    </div>
+    <div class="api-body">
+      <p class="api-desc">
+        Reads the <code>.enc</code> file from workspace, decrypts with the Fernet key,
+        and returns plaintext. Returns 404 if not found, 422 if ciphertext is tampered
+        (Fernet <code>InvalidToken</code>), 503 if key isn't loaded.
+      </p>
+      <div class="response-label">200 Response</div>
+      <div class="code-block">
+        <span class="code-lang">json</span>
+        <pre>{
+  <span class="t-key">"status"</span>: <span class="t-str">"loaded"</span>,
+  <span class="t-key">"session_id"</span>: <span class="t-str">"sess-123"</span>,
+  <span class="t-key">"data"</span>: <span class="t-str">"any string data"</span>,
+  <span class="t-key">"source"</span>: <span class="t-str">"workspace (decrypted)"</span>
+}</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- POST /session/active -->
+  <div class="api-endpoint">
+    <div class="api-endpoint-header">
+      <span class="http-method method-post">POST</span>
+      <span class="api-path">/session/active</span>
+      <span class="api-summary">Store active session in RAM (tmpfs) only — never persisted</span>
+    </div>
+    <div class="api-body">
+      <p class="api-desc">
+        Stores session data in two RAM-only locations: the Python process dict and a file in
+        <code>/openclaw/sessions/</code> (tmpfs). This data is <strong>never</strong> written to
+        the workspace volume. Lost on container restart. Use <code>/session/save</code> for
+        persistence across restarts.
+      </p>
+      <div class="response-label">Request</div>
+      <div class="code-block">
+        <span class="code-lang">json</span>
+        <pre>{ <span class="t-key">"session_id"</span>: <span class="t-str">"live-456"</span>, <span class="t-key">"data"</span>: <span class="t-str">"live conversation state"</span> }</pre>
+      </div>
+      <div class="response-label">200 Response</div>
+      <div class="code-block">
+        <span class="code-lang">json</span>
+        <pre>{
+  <span class="t-key">"status"</span>: <span class="t-str">"stored"</span>,
+  <span class="t-key">"session_id"</span>: <span class="t-str">"live-456"</span>,
+  <span class="t-key">"storage"</span>: <span class="t-str">"tmpfs-ram (not persisted)"</span>,
+  <span class="t-key">"encrypted"</span>: <span class="t-bln">false</span>,
+  <span class="t-key">"note"</span>: <span class="t-str">"Use /session/save for encrypted persistence across restarts"</span>
+}</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- GET /session/active/<id> -->
+  <div class="api-endpoint">
+    <div class="api-endpoint-header">
+      <span class="http-method method-get">GET</span>
+      <span class="api-path">/session/active/&lt;id&gt;</span>
+      <span class="api-summary">Retrieve active session from RAM</span>
+    </div>
+    <div class="api-body">
+      <p class="api-desc">
+        Retrieves a session from the in-process dict. Returns 404 if not found (may have been
+        wiped by dead man's switch). The <code>stored_at</code> timestamp shows when it was created.
+      </p>
+      <div class="response-label">200 Response</div>
+      <div class="code-block">
+        <span class="code-lang">json</span>
+        <pre>{
+  <span class="t-key">"status"</span>: <span class="t-str">"found"</span>,
+  <span class="t-key">"session_id"</span>: <span class="t-str">"live-456"</span>,
+  <span class="t-key">"data"</span>: <span class="t-str">"live conversation state"</span>,
+  <span class="t-key">"stored_at"</span>: <span class="t-str">"2026-03-26T20:00:00Z"</span>,
+  <span class="t-key">"storage"</span>: <span class="t-str">"tmpfs-ram"</span>
+}</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- DELETE /session/<id> -->
+  <div class="api-endpoint">
+    <div class="api-endpoint-header">
+      <span class="http-method method-delete">DELETE</span>
+      <span class="api-path">/session/&lt;id&gt;</span>
+      <span class="api-summary">Secure delete — 3-pass overwrite + unlink + RAM clear</span>
+    </div>
+    <div class="api-body">
+      <p class="api-desc">
+        Securely deletes a session from both workspace (encrypted volume) and active sessions (RAM).
+        Workspace file: 3-pass overwrite (zeros, ones, 0xa5) + fsync after each pass + unlink.
+        Active session: removed from Python dict and tmpfs file securely deleted.
+        Returns 404 if neither location had the session.
+      </p>
+      <div class="response-label">200 Response</div>
+      <div class="code-block">
+        <span class="code-lang">json</span>
+        <pre>{
+  <span class="t-key">"status"</span>: <span class="t-str">"deleted"</span>,
+  <span class="t-key">"session_id"</span>: <span class="t-str">"sess-123"</span>,
+  <span class="t-key">"workspace_shredded"</span>: <span class="t-bln">true</span>,
+  <span class="t-key">"active_wiped"</span>: <span class="t-bln">false</span>,
+  <span class="t-key">"method"</span>: <span class="t-str">"3-pass overwrite (zeros, ones, 0xa5) + unlink"</span>
+}</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- SECTION 6: DATA FLOW -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<section id="dataflow">
+  <h2><span class="section-num">6</span> Data Flow Walkthroughs</h2>
+
+  <!-- Boot sequence -->
+  <h3>Boot Sequence</h3>
+  <p>From <code>docker compose up</code> to first successful health check:</p>
+
+  <div class="pipeline">
+    <div class="pipeline-title">Boot Sequence Timeline</div>
+
+    <div class="pipeline-track">
+      <div class="pipeline-col">
+        <div class="pipeline-node source">OpenBao<br>starts</div>
+        <div class="pipeline-label">dev mode<br>:8200</div>
+      </div>
+      <div class="pipeline-arrow anim"></div>
+      <div class="pipeline-col">
+        <div class="pipeline-node process">Init<br>waits</div>
+        <div class="pipeline-label">health check<br>poll</div>
+      </div>
+      <div class="pipeline-arrow anim"></div>
+      <div class="pipeline-col">
+        <div class="pipeline-node process">KV + AppRole<br>setup</div>
+        <div class="pipeline-label">7 init phases<br>~5s</div>
+      </div>
+      <div class="pipeline-arrow anim"></div>
+      <div class="pipeline-col">
+        <div class="pipeline-node ram">Fernet key<br>generated</div>
+        <div class="pipeline-label">/dev/urandom<br>32B</div>
+      </div>
+      <div class="pipeline-arrow anim"></div>
+      <div class="pipeline-col">
+        <div class="pipeline-node store">AppRole creds<br>written</div>
+        <div class="pipeline-label">approle-creds<br>volume</div>
+      </div>
+      <div class="pipeline-arrow anim"></div>
+      <div class="pipeline-col">
+        <div class="pipeline-node process">App starts<br>+ auth</div>
+        <div class="pipeline-label">AppRole login<br>token acquired</div>
+      </div>
+      <div class="pipeline-arrow anim"></div>
+      <div class="pipeline-col">
+        <div class="pipeline-node ram">Key loaded<br>to RAM</div>
+        <div class="pipeline-label">Python heap<br>SecureState</div>
+      </div>
+      <div class="pipeline-arrow anim"></div>
+      <div class="pipeline-col">
+        <div class="pipeline-node ram">DMS thread<br>starts</div>
+        <div class="pipeline-label">30s heartbeat<br>daemon</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Save flow -->
+  <h3>Save Flow — Plaintext → Encrypted Persistence</h3>
+  <div class="flow-steps">
+    <div class="flow-step active">
+      <div class="flow-step-num">1</div>
+      <div class="flow-step-body">
+        <div class="flow-step-title">Client sends POST /session/save</div>
+        <div class="flow-step-desc">JSON body with session_id and plaintext data string</div>
+      </div>
+    </div>
+    <div class="flow-step active">
+      <div class="flow-step-num">2</div>
+      <div class="flow-step-body">
+        <div class="flow-step-title">Validate session_id format</div>
+        <div class="flow-step-desc">Regex: <code>^[a-zA-Z0-9_\-]{1,128}$</code> — prevents path traversal</div>
+      </div>
+    </div>
+    <div class="flow-step active">
+      <div class="flow-step-num">3</div>
+      <div class="flow-step-body">
+        <div class="flow-step-title">Check Fernet key availability</div>
+        <div class="flow-step-desc">If dead man's switch fired → return 503. No key, no encrypt.</div>
+      </div>
+    </div>
+    <div class="flow-step active">
+      <div class="flow-step-num">4</div>
+      <div class="flow-step-body">
+        <div class="flow-step-title">Encrypt data with Fernet</div>
+        <div class="flow-step-desc">
+          <code>state.encrypt(data)</code> → <code>Fernet(key).encrypt(data.encode())</code>
+          → bytes starting with <code>gAAAAA...</code>
+        </div>
+      </div>
+    </div>
+    <div class="flow-step active">
+      <div class="flow-step-num">5</div>
+      <div class="flow-step-body">
+        <div class="flow-step-title">Write ciphertext to workspace volume</div>
+        <div class="flow-step-desc">
+          <code>/openclaw/workspace/session_{id}.enc</code> — only Fernet bytes touch disk.
+          Plaintext never leaves the Python process.
+        </div>
+      </div>
+    </div>
+    <div class="flow-step active">
+      <div class="flow-step-num">6</div>
+      <div class="flow-step-body">
+        <div class="flow-step-title">Return success response</div>
+        <div class="flow-step-desc">Confirms encrypted=true, key_source=openbao</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Load flow -->
+  <h3>Load Flow — Decrypt from Persistent Storage</h3>
+  <div class="flow-steps">
+    <div class="flow-step active">
+      <div class="flow-step-num">1</div>
+      <div class="flow-step-body">
+        <div class="flow-step-title">Client sends GET /session/load/{id}</div>
+        <div class="flow-step-desc">Validate session_id format</div>
+      </div>
+    </div>
+    <div class="flow-step active">
+      <div class="flow-step-num">2</div>
+      <div class="flow-step-body">
+        <div class="flow-step-title">Read .enc file from workspace volume</div>
+        <div class="flow-step-desc">Raw Fernet ciphertext bytes — opaque without the key</div>
+      </div>
+    </div>    <div class="flow-step active">
+      <div class="flow-step-num">3</div>
+      <div class="flow-step-body">
+        <div class="flow-step-title">Decrypt with Fernet key (from RAM)</div>
+        <div class="flow-step-desc">
+          <code>state.decrypt(ciphertext)</code> → HMAC verified first, then AES-128-CBC decrypt.
+          If tampered: <code>InvalidToken</code> → 422.
+        </div>
+      </div>
+    </div>
+    <div class="flow-step active">
+      <div class="flow-step-num">4</div>
+      <div class="flow-step-body">
+        <div class="flow-step-title">Return plaintext to caller</div>
+        <div class="flow-step-desc">Plaintext only passes through the Python process heap — never stored unencrypted</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Active session flow -->
+  <h3>Active Session Flow — RAM Only, Never Persisted</h3>
+  <div class="pipeline">
+    <div class="pipeline-title">Active Session — Dual RAM Storage</div>
+    <div class="pipeline-track">
+      <div class="pipeline-col">
+        <div class="pipeline-node source">POST<br>/session/active</div>
+      </div>
+      <div class="pipeline-arrow anim"></div>
+      <div class="pipeline-col">
+        <div class="pipeline-node ram">Python dict<br>(in-process)</div>
+        <div class="pipeline-label">heap memory</div>
+      </div>
+      <div class="pipeline-arrow anim"></div>
+      <div class="pipeline-col">
+        <div class="pipeline-node ram">tmpfs file<br>/openclaw/sessions/</div>
+        <div class="pipeline-label">RAM-backed FS</div>
+      </div>
+    </div>
+    <p style="margin-top:1rem; font-size:0.82rem; color:var(--text-dim);">
+      ⚠️ <strong style="color:var(--text)">Neither location survives a container restart.</strong>
+      On <code>docker stop</code>, both are immediately gone — tmpfs is wiped, Python heap is freed.
+      Active sessions are for live conversation state only; use <code>/session/save</code> for
+      memory that needs to survive restarts.
+    </p>
+  </div>
+
+  <!-- Secure delete flow -->
+  <h3>Secure Delete Flow — 3-Pass Overwrite</h3>
+  <div class="flow-steps">
+    <div class="flow-step active">
+      <div class="flow-step-num">1</div>
+      <div class="flow-step-body">
+        <div class="flow-step-title">Client sends DELETE /session/{id}</div>
+        <div class="flow-step-desc">Validate session_id, check existence</div>
+      </div>
+    </div>
+    <div class="flow-step active">
+      <div class="flow-step-num">2</div>
+      <div class="flow-step-body">
+        <div class="flow-step-title">Open file in r+b mode, read size</div>
+        <div class="flow-step-desc">Get byte count for overwrite passes</div>
+      </div>
+    </div>
+    <div class="flow-step active">
+      <div class="flow-step-num">3</div>
+      <div class="flow-step-body">
+        <div class="flow-step-title">Pass 1: Overwrite with zeros (0x00)</div>
+        <div class="flow-step-desc"><code>f.write(b'\x00' * size)</code> + <code>os.fsync()</code></div>
+      </div>
+    </div>
+    <div class="flow-step active">
+      <div class="flow-step-num">4</div>
+      <div class="flow-step-body">
+        <div class="flow-step-title">Pass 2: Overwrite with ones (0xFF)</div>
+        <div class="flow-step-desc"><code>f.write(b'\xff' * size)</code> + <code>os.fsync()</code></div>
+      </div>
+    </div>
+    <div class="flow-step active">
+      <div class="flow-step-num">5</div>
+      <div class="flow-step-body">
+        <div class="flow-step-title">Pass 3: Overwrite with pattern (0xA5)</div>
+        <div class="flow-step-desc"><code>f.write(b'\xa5' * size)</code> + <code>os.fsync()</code></div>
+      </div>
+    </div>
+    <div class="flow-step active">
+      <div class="flow-step-num">6</div>
+      <div class="flow-step-body">
+        <div class="flow-step-title">Unlink — remove directory entry</div>
+        <div class="flow-step-desc"><code>path.unlink()</code> — inode removed, blocks overwritten</div>
+      </div>
+    </div>
+    <div class="flow-step active">
+      <div class="flow-step-num">7</div>
+      <div class="flow-step-body">
+        <div class="flow-step-title">Remove from active sessions dict + tmpfs</div>
+        <div class="flow-step-desc">Clear in-memory reference and secure-delete tmpfs copy</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dead man's switch flow -->
+  <h3>Dead Man's Switch Flow</h3>
+  <div class="pipeline">
+    <div class="pipeline-title">DMS Background Thread — Runs Every 30s</div>
+    <div class="pipeline-track">
+      <div class="pipeline-col">
+        <div class="pipeline-node process">Poll<br>/v1/sys/health</div>
+        <div class="pipeline-label">every 30s</div>
+      </div>
+      <div class="pipeline-arrow"></div>
+      <div class="pipeline-col">
+        <div class="pipeline-node ram">200/429<br>= healthy</div>
+        <div class="pipeline-label">check token<br>renewal</div>
+      </div>
+      <div class="pipeline-arrow"></div>
+      <div class="pipeline-col">
+        <div class="pipeline-node dead">Fail<br>×3</div>
+        <div class="pipeline-label">consecutive<br>failures</div>
+      </div>
+      <div class="pipeline-arrow anim"></div>
+      <div class="pipeline-col">
+        <div class="pipeline-node dead">WIPE<br>all secrets</div>
+        <div class="pipeline-label">Fernet key<br>gone</div>
+      </div>
+    </div>
+    <p style="margin-top:1rem; font-size:0.82rem; color:var(--text-dim);">
+      Recovery path: When OpenBao comes back online, the DMS thread automatically
+      re-authenticates via AppRole and re-fetches all secrets. The app resumes normally
+      without a container restart.
+    </p>
+  </div>
+
+  <!-- Shutdown flow -->
+  <h3>Shutdown Flow — SIGTERM → Shred → Exit</h3>
+  <div class="flow-steps">
+    <div class="flow-step active">
+      <div class="flow-step-num">1</div>
+      <div class="flow-step-body">
+        <div class="flow-step-title">Docker sends SIGTERM to PID 1</div>
+        <div class="flow-step-desc">Triggered by: <code>docker stop</code>, <code>docker compose down</code>, OOM killer</div>
+      </div>
+    </div>
+    <div class="flow-step active">
+      <div class="flow-step-num">2</div>
+      <div class="flow-step-body">
+        <div class="flow-step-title">_shutdown_handler() fires immediately</div>
+        <div class="flow-step-desc">Python signal handler registered at startup</div>
+      </div>
+    </div>
+    <div class="flow-step active">
+      <div class="flow-step-num">3</div>
+      <div class="flow-step-body">
+        <div class="flow-step-title">state.wipe_secrets() — atomically clear all RAM secrets</div>
+        <div class="flow-step-desc">Fernet key, API keys, config, token → all set to None and cleared</div>
+      </div>
+    </div>
+    <div class="flow-step active">
+      <div class="flow-step-num">4</div>
+      <div class="flow-step-body">
+        <div class="flow-step-title">shred_workspace() — 3-pass overwrite all .enc files</div>
+        <div class="flow-step-desc">Recursive glob on /openclaw/workspace/** — every file gets the 3-pass treatment</div>
+      </div>
+    </div>
+    <div class="flow-step active">
+      <div class="flow-step-num">5</div>
+      <div class="flow-step-body">
+        <div class="flow-step-title">Wipe active session tmpfs files</div>
+        <div class="flow-step-desc">Secure delete all *.json in /openclaw/sessions/</div>
+      </div>
+    </div>
+    <div class="flow-step active">
+      <div class="flow-step-num">6</div>
+      <div class="flow-step-body">
+        <div class="flow-step-title">sys.exit(0)</div>
+        <div class="flow-step-desc">Clean exit. tmpfs mounts are unmounted by Docker — RAM freed.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- SECTION 7: TEST SUITE -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<section id="tests">
+  <h2><span class="section-num">7</span> Test Suite</h2>
+
+  <p>
+    The test suite (<code>test_secure.sh</code>) verifies all security properties from the outside,
+    using only Docker CLI and curl — no container introspection magic. Tests are organized into
+    11 security domains plus a slow SIGTERM test available with <code>--full</code>.
+  </p>
+
+  <div class="callout info">
+    <span class="callout-icon">🧪</span>
+    <span class="callout-text">
+      <strong>Run:</strong> <code>bash test_secure.sh</code> (fast, skips SIGTERM test) or
+      <code>bash test_secure.sh --full</code> (includes SIGTERM shred verification, ~30s extra).
+      Add <code>--verbose</code> for detailed output on each check.
+    </span>
+  </div>
+
+  <!-- Test Domain 1 -->
+  <div class="test-domain">
+    <div class="test-domain-title">
+      🗄️ Test 1: tmpfs Mounts <span class="test-count">6 checks</span>
+    </div>
+    <ul class="test-list">
+      <li>/openclaw/sessions is tmpfs</li>
+      <li>/openclaw/secrets is tmpfs</li>
+      <li>/openclaw/cache is tmpfs</li>
+      <li>API confirms sessions is_tmpfs=true</li>
+      <li>API confirms secrets is_tmpfs=true</li>
+      <li>/openclaw/workspace is NOT tmpfs (persistent volume)</li>
+    </ul>
+  </div>
+
+  <!-- Test Domain 2 -->
+  <div class="test-domain">
+    <div class="test-domain-title">
+      🔐 Test 2: Workspace Encryption (No Plaintext on Disk) <span class="test-count">5 checks</span>
+    </div>
+    <ul class="test-list">
+      <li>Session save request succeeds</li>
+      <li>API confirms encrypted=true</li>
+      <li>key_source=openbao (not hardcoded)</li>
+      <li>Workspace does NOT contain plaintext payload</li>
+      <li>.enc file starts with Fernet token prefix 'gAAAAA'</li>
+    </ul>
+  </div>
+
+  <!-- Test Domain 3 -->
+  <div class="test-domain">
+    <div class="test-domain-title">
+      🧠 Test 3: Active Sessions Stay in RAM <span class="test-count">5 checks</span>
+    </div>
+    <ul class="test-list">
+      <li>Active session stores successfully</li>
+      <li>API confirms storage=tmpfs-ram</li>
+      <li>Active session payload NOT in workspace volume</li>
+      <li>Active session retrievable from RAM via API</li>
+      <li>Active session file exists in /openclaw/sessions (tmpfs)</li>
+    </ul>
+  </div>
+
+  <!-- Test Domain 4 -->
+  <div class="test-domain">
+    <div class="test-domain-title">
+      🎯 Test 4: Fernet Key from OpenBao (Not Hardcoded) <span class="test-count">5 checks</span>
+    </div>
+    <ul class="test-list">
+      <li>No hardcoded Fernet key in image layers</li>
+      <li>Fernet key NOT in container environment variables</li>
+      <li>Fernet key NOT in /proc/1/environ</li>
+      <li>Status endpoint confirms fernet_key_source=openbao-approle</li>
+      <li>OpenBao has the fernet_key at kv/openclaw/encryption</li>
+    </ul>
+  </div>
+
+  <!-- Test Domain 5 -->
+  <div class="test-domain">
+    <div class="test-domain-title">
+      🗑️ Test 5: Secure Delete (3-Pass Overwrite) <span class="test-count">5 checks</span>
+    </div>
+    <ul class="test-list">
+      <li>Session file created before delete</li>
+      <li>DELETE returns status=deleted</li>
+      <li>Method description confirms multi-pass overwrite</li>
+      <li>workspace_shredded=true in response</li>
+      <li>Session file no longer exists after delete</li>
+    </ul>
+  </div>
+
+  <!-- Test Domain 6 -->
+  <div class="test-domain">
+    <div class="test-domain-title">
+      🔄 Test 6: Encryption Round-Trip (Save → Load) <span class="test-count">4 checks</span>
+    </div>
+    <ul class="test-list">
+      <li>Round-trip save succeeds</li>
+      <li>Round-trip load succeeds</li>
+      <li>Exact data integrity verified after decrypt</li>
+      <li>Unicode / emoji (🎩) survives Fernet round-trip</li>
+    </ul>
+  </div>
+
+  <!-- Test Domain 7 -->
+  <div class="test-domain">
+    <div class="test-domain-title">
+      🔍 Test 7: Workspace Volume Contains No Plaintext <span class="test-count">3 checks</span>
+    </div>
+    <ul class="test-list">
+      <li>Plaintext payload not found in workspace volume</li>
+      <li>Earlier test payloads also absent from workspace</li>
+      <li>No sensitive patterns (password, secret_key, api_key) in workspace</li>
+    </ul>
+  </div>
+
+  <!-- Test Domain 8 -->
+  <div class="test-domain">
+    <div class="test-domain-title">
+      👤 Test 8: Non-Root Container User <span class="test-count">2 checks</span>
+    </div>
+    <ul class="test-list">
+      <li>App process UID ≠ 0 (running as openclaw, UID 10001)</li>
+      <li>no-new-privileges:true security option confirmed</li>
+    </ul>
+  </div>
+
+  <!-- Test Domain 9 -->
+  <div class="test-domain">
+    <div class="test-domain-title">
+      🚫 Test 9: API Endpoints Don't Leak Key Material <span class="test-count">5 checks</span>
+    </div>
+    <ul class="test-list">
+      <li>/health does NOT expose the Fernet key</li>
+      <li>/status does NOT expose the Fernet key</li>
+      <li>/ (index) does NOT expose the Fernet key</li>
+      <li>No API key values exposed in any endpoint response</li>
+      <li>/status shows API key names (acceptable) but not values</li>
+    </ul>
+  </div>
+
+  <!-- Test Domain 10 -->
+  <div class="test-domain">
+    <div class="test-domain-title">
+      🎭 Test 10: OpenBao AppRole Auth (Not Root Token) <span class="test-count">7 checks</span>
+    </div>
+    <ul class="test-list">
+      <li>Root token NOT in app container environment</li>
+      <li>role_id present in shared approle-creds volume</li>
+      <li>secret_id present in shared approle-creds volume</li>
+      <li>AppRole creds contain only UUIDs (not application secrets)</li>
+      <li>Unauthenticated OpenBao access blocked (HTTP 403)</li>
+      <li>Fake token rejected by OpenBao (HTTP 403)</li>
+      <li>App has Fernet key loaded (AppRole auth was successful)</li>
+    </ul>
+  </div>
+
+  <!-- Test Domain 11 -->
+  <div class="test-domain">
+    <div class="test-domain-title">
+      ⚡ Test 11: SIGTERM Shred Trap <span class="test-count">3 checks (--full only)</span>
+    </div>
+    <ul class="test-list">
+      <li>Session file created before SIGTERM</li>
+      <li>Shred trap fires — session file deleted from workspace on SIGTERM</li>
+      <li>Log shows shred activity on SIGTERM</li>
+    </ul>
+  </div>
+
+  <!-- Test Domain 12 -->
+  <div class="test-domain">
+    <div class="test-domain-title">
+      🔒 Test 12: Read-Only Root Filesystem <span class="test-count">6 checks</span>
+    </div>
+    <ul class="test-list">
+      <li>Root filesystem is read-only (cannot write to /)</li>
+      <li>/tmp is writable (correctly allowed)</li>
+      <li>/openclaw/sessions is writable (tmpfs, correctly allowed)</li>
+      <li>/openclaw/workspace is writable (volume, correctly allowed)</li>
+      <li>/openclaw/secrets is writable (tmpfs, correctly allowed)</li>
+      <li>/openclaw/cache is writable (tmpfs, correctly allowed)</li>
+    </ul>
+  </div>
+
+</section>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- SECTION 8: THREAT MODEL -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<section id="threats">
+  <h2><span class="section-num">8</span> Threat Model</h2>
+
+  <p>
+    Honest assessment of what this architecture protects against and what requires
+    additional mitigations. No silver bullets — know your threat surface.
+  </p>
+
+  <div class="threat-grid">
+    <div class="threat-panel protected">
+      <div class="threat-panel-title">✅ Protected Against</div>
+
+      <div class="threat-item">
+        <span class="threat-icon">✅</span>
+        <div>
+          <div class="threat-text"><strong>Disk forensics after shutdown</strong></div>
+          <div class="threat-note">
+            SIGTERM shred trap + tmpfs wipe means no plaintext survives container stop.
+            Fernet-encrypted workspace contains only opaque ciphertext.
+          </div>
+        </div>
+      </div>
+
+      <div class="threat-item">
+        <span class="threat-icon">✅</span>
+        <div>
+          <div class="threat-text"><strong>Container escape reading workspace</strong></div>
+          <div class="threat-note">
+            Even if an attacker escapes to the host and reads the workspace-data volume,
+            they see only Fernet ciphertext — useless without the key.
+          </div>
+        </div>
+      </div>
+
+      <div class="threat-item">
+        <span class="threat-icon">✅</span>
+        <div>
+          <div class="threat-text"><strong>Secrets leaking via env vars</strong></div>
+          <div class="threat-note">
+            Zero secrets in environment variables or image layers.
+            Verified by test suite (Test 4) via /proc/1/environ and docker inspect.
+          </div>
+        </div>
+      </div>
+
+      <div class="threat-item">
+        <span class="threat-icon">✅</span>
+        <div>
+          <div class="threat-text"><strong>API endpoint information disclosure</strong></div>
+          <div class="threat-note">
+            No endpoint exposes key material. /status shows key names but not values.
+            AppRole credentials are UUIDs — not application secrets.
+          </div>
+        </div>
+      </div>
+
+      <div class="threat-item">
+        <span class="threat-icon">✅</span>
+        <div>
+          <div class="threat-text"><strong>Rogue app writing secrets to disk</strong></div>
+          <div class="threat-note">
+            Read-only rootfs prevents writing to unspecified paths.
+            cap_drop ALL limits privilege abuse.
+          </div>
+        </div>
+      </div>
+
+      <div class="threat-item">
+        <span class="threat-icon">✅</span>
+        <div>
+          <div class="threat-text"><strong>OpenBao network partition / compromise</strong></div>
+          <div class="threat-note">
+            Dead man's switch wipes Fernet key after 3 failed health checks.
+            Encrypted sessions become unreadable — chosen over leaving key in RAM indefinitely.
+          </div>
+        </div>
+      </div>
+
+      <div class="threat-item">
+        <span class="threat-icon">✅</span>
+        <div>
+          <div class="threat-text"><strong>Path traversal in session IDs</strong></div>
+          <div class="threat-note">
+            Session IDs validated with <code>^[a-zA-Z0-9_\-]{1,128}$</code> regex.
+            Cannot traverse outside /openclaw/workspace/ via crafted IDs.
+          </div>
+        </div>
+      </div>
+
+      <div class="threat-item">
+        <span class="threat-icon">✅</span>
+        <div>
+          <div class="threat-text"><strong>Ciphertext tampering</strong></div>
+          <div class="threat-note">
+            Fernet provides authenticated encryption (HMAC-SHA256).
+            Modified ciphertext raises InvalidToken before any data is returned.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="threat-panel vulnerable">
+      <div class="threat-panel-title">❌ Not Protected Against</div>
+
+      <div class="threat-item">
+        <span class="threat-icon">❌</span>
+        <div>
+          <div class="threat-text"><strong>Host-level memory dumps</strong></div>
+          <div class="threat-note">
+            The Fernet key is in the Python heap. A root-level host process reading
+            /proc/{pid}/mem would find it. Mitigate with SELinux/AppArmor on the host.
+          </div>
+        </div>
+      </div>
+
+      <div class="threat-item">
+        <span class="threat-icon">❌</span>
+        <div>
+          <div class="threat-text"><strong>Hardware-level attacks (cold boot, DMA)</strong></div>
+          <div class="threat-note">
+            Cold boot attacks can recover RAM contents after power loss.
+            DMA attacks via PCIe devices can read physical memory.
+            Mitigate with HSM for key management.
+          </div>
+        </div>
+      </div>
+
+      <div class="threat-item">
+        <span class="threat-icon">❌</span>
+        <div>
+          <div class="threat-text"><strong>Compromised Docker daemon</strong></div>
+          <div class="threat-note">
+            If the Docker daemon itself is compromised, all bets are off.
+            The design relies on Docker's security model for isolation.
+          </div>
+        </div>
+      </div>
+
+      <div class="threat-item">
+        <span class="threat-icon">❌</span>
+        <div>
+          <div class="threat-text"><strong>SSD data remanence (without LUKS)</strong></div>
+          <div class="threat-note">
+            SSD wear-leveling may not honor overwrite requests to the same physical cells.
+            The 3-pass shred is best-effort on SSDs. LUKS encryption on the host volume
+            is the correct solution for production.
+          </div>
+        </div>
+      </div>
+
+      <div class="threat-item">
+        <span class="threat-icon">❌</span>
+        <div>
+          <div class="threat-text"><strong>Kernel vulnerabilities / container escape</strong></div>
+          <div class="threat-note">
+            A kernel exploit that gives an attacker container escape <em>and</em> memory read
+            access can extract the Fernet key. No software-only solution prevents this.
+          </div>
+        </div>
+      </div>
+
+      <div class="threat-item">
+        <span class="threat-icon">❌</span>
+        <div>
+          <div class="threat-text"><strong>Swap — if host has swap enabled</strong></div>
+          <div class="threat-note">
+            If the host has swap enabled, Python heap pages (including the Fernet key)
+            may be swapped to disk. Use <code>--memory-swap</code> or disable host swap.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h3>Production Hardening Recommendations</h3>
+  <div class="mini-table">
+    <table class="mini-table">
+      <thead>
+        <tr><th>Risk</th><th>Mitigation</th><th>Effort</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Memory dumps</td>
+          <td>SELinux/AppArmor profiles, gVisor sandbox</td>
+          <td>Medium</td>
+        </tr>
+        <tr>
+          <td>SSD data remanence</td>
+          <td>LUKS-encrypt the host volume backing workspace-data</td>
+          <td>Low</td>
+        </tr>
+        <tr>
+          <td>Key management at scale</td>
+          <td>DEK/KEK key hierarchy — DEK encrypted by master KEK in HSM</td>
+          <td>High</td>
+        </tr>
+        <tr>
+          <td>Swap leakage</td>
+          <td>Disable host swap or use encrypted swap (zswap/zram)</td>
+          <td>Low</td>
+        </tr>
+        <tr>
+          <td>API exposure</td>
+          <td>Add mTLS or API key authentication to Flask endpoints</td>
+          <td>Low</td>
+        </tr>
+        <tr>
+          <td>OpenBao persistence</td>
+          <td>Use Raft or Consul backend instead of dev-mode in-memory</td>
+          <td>Medium</td>
+        </tr>
+        <tr>
+          <td>Secret rotation</td>
+          <td>Implement DEK versioning for key rotation without data loss</td>
+          <td>High</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- SECTION 9: QUICK START -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<section id="quickstart">
+  <h2><span class="section-num">9</span> Quick Start</h2>
+
+  <p>Get the full stack running in under a minute. Requires Docker + Docker Compose v2.</p>
+
+  <div class="steps-numbered">
+
+    <div class="step-item">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <div class="step-label">Start all containers</div>
+        <div class="terminal">
+          <div class="terminal-bar">
+            <div class="terminal-dot dot-red"></div>
+            <div class="terminal-dot dot-yellow"></div>
+            <div class="terminal-dot dot-green"></div>
+            <span class="terminal-title">bash</span>
+          </div>
+          <pre><span class="t-prompt">$</span> <span class="t-cmd">cd built/openclaw-secure-docker</span>
+<span class="t-prompt">$</span> <span class="t-cmd">docker compose up -d</span>
+<span class="t-out">[+] Running 3/3</span>
+<span class="t-out"> ✔ Container openclaw-openbao       Started</span>
+<span class="t-out"> ✔ Container openclaw-openbao-init  Exited (0)</span>
+<span class="t-out"> ✔ Container openclaw-app           Started</span></pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="step-item">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <div class="step-label">Wait for health (init takes ~15s)</div>
+        <div class="terminal">
+          <div class="terminal-bar">
+            <div class="terminal-dot dot-red"></div>
+            <div class="terminal-dot dot-yellow"></div>
+            <div class="terminal-dot dot-green"></div>
+            <span class="terminal-title">bash</span>
+          </div>
+          <pre><span class="t-prompt">$</span> <span class="t-cmd">curl http://localhost:8300/health</span>
+<span class="t-ok">{
+  "status": "healthy",
+  "encryption": true,
+  "fernet_key_source": "openbao (not hardcoded)"
+}</span></pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="step-item">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <div class="step-label">Run the security test suite</div>
+        <div class="terminal">
+          <div class="terminal-bar">
+            <div class="terminal-dot dot-red"></div>
+            <div class="terminal-dot dot-yellow"></div>
+            <div class="terminal-dot dot-green"></div>
+            <span class="terminal-title">bash</span>
+          </div>
+          <pre><span class="t-prompt">$</span> <span class="t-cmd">bash test_secure.sh</span>
+<span class="t-ok">  ✓ PASS: openclaw-openbao is running</span>
+<span class="t-ok">  ✓ PASS: openclaw-app is running</span>
+<span class="t-ok">  ✓ PASS: App /health returns 200</span>
+<span class="t-out">  ...</span>
+<span class="t-ok">  █████████████████████████████████████████████████</span>
+<span class="t-ok">    ALL TESTS PASSED — Secure OpenClaw Docker is solid</span>
+<span class="t-ok">  █████████████████████████████████████████████████</span></pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="step-item">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <div class="step-label">Try the API — save an encrypted session</div>
+        <div class="terminal">
+          <div class="terminal-bar">
+            <div class="terminal-dot dot-red"></div>
+            <div class="terminal-dot dot-yellow"></div>
+            <div class="terminal-dot dot-green"></div>
+            <span class="terminal-title">bash</span>
+          </div>
+          <pre><span class="t-cmt"># Save an encrypted session</span>
+<span class="t-prompt">$</span> <span class="t-cmd">curl -X POST http://localhost:8300/session/save \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "my-session", "data": "sensitive agent memory"}'</span>
+<span class="t-out">{
+  "status": "saved",
+  "session_id": "my-session",
+  "encrypted": true,
+  "key_source": "openbao"
+}</span>
+
+<span class="t-cmt"># Load and decrypt it</span>
+<span class="t-prompt">$</span> <span class="t-cmd">curl http://localhost:8300/session/load/my-session</span>
+<span class="t-out">{
+  "status": "loaded",
+  "data": "sensitive agent memory",
+  "source": "workspace (decrypted)"
+}</span>
+
+<span class="t-cmt"># Verify the workspace only contains ciphertext</span>
+<span class="t-prompt">$</span> <span class="t-cmd">docker exec openclaw-app cat /openclaw/workspace/session_my-session.enc | head -c 20</span>
+<span class="t-out">gAAAAAbA...</span> <span class="t-cmt"># Fernet ciphertext — not readable</span></pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="step-item">
+      <div class="step-num">5</div>
+      <div class="step-content">
+        <div class="step-label">Store an active session (RAM only)</div>
+        <div class="terminal">
+          <div class="terminal-bar">
+            <div class="terminal-dot dot-red"></div>
+            <div class="terminal-dot dot-yellow"></div>
+            <div class="terminal-dot dot-green"></div>
+            <span class="terminal-title">bash</span>
+          </div>
+          <pre><span class="t-prompt">$</span> <span class="t-cmd">curl -X POST http://localhost:8300/session/active \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "live-001", "data": "current conversation state"}'</span>
+<span class="t-out">{
+  "status": "stored",
+  "storage": "tmpfs-ram (not persisted)"
+}</span></pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="step-item">
+      <div class="step-num">6</div>
+      <div class="step-content">
+        <div class="step-label">Stop (SIGTERM → auto-shred fires)</div>
+        <div class="terminal">
+          <div class="terminal-bar">
+            <div class="terminal-dot dot-red"></div>
+            <div class="terminal-dot dot-yellow"></div>
+            <div class="terminal-dot dot-green"></div>
+            <span class="terminal-title">bash</span>
+          </div>
+          <pre><span class="t-prompt">$</span> <span class="t-cmd">docker compose down</span>
+<span class="t-out"># Container logs show:</span>
+<span class="t-warn">⚡ SIGTERM received — triggering auto-shred and shutdown...</span>
+<span class="t-warn">🔥 AUTO-SHRED: Overwriting all workspace files...</span>
+<span class="t-warn">🔥 AUTO-SHRED: 1 files shredded from workspace.</span>
+<span class="t-out">Shutdown complete. Exiting.</span></pre>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- SECTION 10: CONFIGURATION -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<section id="config">
+  <h2><span class="section-num">10</span> Configuration</h2>
+
+  <h3>Environment Variables</h3>
+  <table class="config-table">
+    <thead>
+      <tr><th>Variable</th><th>Default</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>BAO_ADDR</td>
+        <td>http://openbao:8200</td>
+        <td>OpenBao server address. Change for external Vault/OpenBao.</td>
+      </tr>
+      <tr>
+        <td>APPROLE_CREDS_PATH</td>
+        <td>/approle-creds</td>
+        <td>Directory containing role_id and secret_id files from init container.</td>
+      </tr>
+      <tr>
+        <td>HEARTBEAT_INTERVAL</td>
+        <td>30</td>
+        <td>Seconds between OpenBao health checks by the dead man's switch thread.</td>
+      </tr>
+      <tr>
+        <td>FLASK_ENV</td>
+        <td>production</td>
+        <td>Flask environment mode. Never set to "development" in production.</td>
+      </tr>
+      <tr>
+        <td>PYTHONUNBUFFERED</td>
+        <td>1</td>
+        <td>Disable Python stdout/stderr buffering for real-time log output.</td>
+      </tr>
+      <tr>
+        <td>PYTHONDONTWRITEBYTECODE</td>
+        <td>1</td>
+        <td>Prevent writing .pyc files (reduces filesystem writes).</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>tmpfs Mount Sizes</h3>
+  <p>Configurable in <code>docker-compose.yml</code> under the <code>tmpfs.size</code> key (bytes):</p>
+  <table class="config-table">
+    <thead>
+      <tr><th>Mount</th><th>Default Size</th><th>Purpose</th><th>Resize When</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>/openclaw/sessions</td>
+        <td>64MB (67108864)</td>
+        <td>Active conversation state</td>
+        <td>High concurrent session count</td>
+      </tr>
+      <tr>
+        <td>/openclaw/secrets</td>
+        <td>10MB (10485760)</td>
+        <td>Secrets manifest (metadata only)</td>
+        <td>Rarely — manifest is tiny</td>
+      </tr>
+      <tr>
+        <td>/openclaw/cache</td>
+        <td>128MB (134217728)</td>
+        <td>Model cache, temp computation</td>
+        <td>Large model outputs / embeddings</td>
+      </tr>
+      <tr>
+        <td>/tmp</td>
+        <td>32MB</td>
+        <td>Gunicorn/Flask runtime scratch</td>
+        <td>If gunicorn writes large temp files</td>
+      </tr>
+      <tr>
+        <td>/app/__pycache__</td>
+        <td>16MB</td>
+        <td>Python bytecode cache</td>
+        <td>More Python modules added</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>OpenBao AppRole Tuning</h3>
+  <table class="config-table">
+    <thead>
+      <tr><th>Setting</th><th>Default</th><th>Production Recommendation</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>token_ttl</td>
+        <td>1h</td>
+        <td>Keep short (15-30m); DMS will renew automatically</td>
+      </tr>
+      <tr>
+        <td>token_max_ttl</td>
+        <td>4h</td>
+        <td>Set to match your key rotation schedule</td>
+      </tr>
+      <tr>
+        <td>secret_id_ttl</td>
+        <td>24h</td>
+        <td>Should match deployment cycle; rotate on redeploy</td>
+      </tr>
+      <tr>
+        <td>secret_id_num_uses</td>
+        <td>0 (unlimited)</td>
+        <td>Set to 1 for single-use credentials in production</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Key Rotation Procedure</h3>
+  <div class="callout warning">
+    <span class="callout-icon">⚠️</span>
+    <span class="callout-text">
+      <strong>Rotating the Fernet key makes all existing encrypted workspace sessions unreadable.</strong>
+      This is by design — forward secrecy. Before rotating, either export all sessions via
+      <code>GET /session/load/*</code> or accept that historical data is abandoned.
+    </span>
+  </div>
+  <div class="code-block">
+    <span class="code-lang">bash</span>
+    <pre><span class="t-cmt"># 1. Rotate key — generates new Fernet key in OpenBao</span>
+<span class="t-prompt">$</span> <span class="t-cmd">docker compose run --rm openbao-init</span>
+
+<span class="t-cmt"># 2. Restart app to pick up new key</span>
+<span class="t-prompt">$</span> <span class="t-cmd">docker compose restart openclaw-app</span>
+
+<span class="t-cmt"># 3. Verify new key loaded</span>
+<span class="t-prompt">$</span> <span class="t-cmd">curl http://localhost:8300/health | jq .encryption</span>
+<span class="t-out">true</span>
+
+<span class="t-cmt"># Note: existing .enc files are now undecryptable (wrong key)</span>
+<span class="t-cmt"># This is intentional — forward secrecy</span></pre>
+  </div>
+
+  <h3>Docker Compose Volume Configuration</h3>
+  <div class="code-block">
+    <span class="code-lang">yaml</span>
+    <pre><span class="t-key">volumes:</span>
+  <span class="t-key">approle-creds:</span>
+    <span class="t-cmt"># Shared between init and app — contains role_id + secret_id (UUIDs)</span>
+    <span class="t-cmt"># Both containers mount this; app mounts it read-only</span>
+
+  <span class="t-key">workspace-data:</span>
+    <span class="t-cmt"># Persistent encrypted workspace — survives container restarts</span>
+    <span class="t-cmt"># App writes Fernet ciphertext only — never plaintext</span>
+    <span class="t-cmt"># Production: back this with a LUKS-encrypted host volume</span>
+    <span class="t-cmt"># Example: driver_opts: device: /dev/mapper/encrypted-workspace</span></pre>
+  </div>
+
+  <h3>File Structure</h3>
+  <div class="code-block">
+    <pre>openclaw-secure-docker/
+├── <span class="t-key">docker-compose.yml</span>       — Services, tmpfs, volumes, security opts
+├── <span class="t-key">README.md</span>                — Overview and quick reference
+├── <span class="t-key">start.sh</span>                 — Start + wait for health check
+├── <span class="t-key">stop.sh</span>                  — Graceful stop (SIGTERM → shred fires)
+├── <span class="t-key">test_secure.sh</span>           — 12-domain security test suite
+│
+├── <span class="t-key">app/</span>
+│   ├── <span class="t-key">Dockerfile</span>           — Non-root, slim, read-only rootfs
+│   ├── <span class="t-key">app.py</span>               — Flask app + all security layers
+│   ├── <span class="t-key">entrypoint.sh</span>        — chown tmpfs mounts → drop to UID 10001
+│   └── <span class="t-key">requirements.txt</span>     — flask, requests, cryptography
+│
+├── <span class="t-key">init/</span>
+│   └── <span class="t-key">setup.sh</span>             — OpenBao bootstrap: KV, Fernet key, AppRole
+│
+└── <span class="t-key">docs-site/</span>
+    ├── <span class="t-key">index.html</span>           — This documentation site
+    └── <span class="t-key">serve.sh</span>             — Serve on port 8320</pre>
+  </div>
+</section>
+
+</main><!-- .main -->
+
+<!-- ──────────────────────────────────────────────────────────── -->
+<!-- FOOTER -->
+<!-- ──────────────────────────────────────────────────────────── -->
+<footer class="footer">
+  <span>OpenClaw Secure Docker — Architecture Reference</span>
+  <span>·</span>
+  <span>Flask + Fernet + OpenBao + tmpfs</span>
+  <span class="footer-spacer"></span>
+  <span style="color:var(--green)">🔒 Zero Plaintext at Rest</span>
+</footer>
+
+<!-- ──────────────────────────────────────────────────────────── -->
+<!-- SIDEBAR ACTIVE LINK TRACKING -->
+<!-- ──────────────────────────────────────────────────────────── -->
+<script>
+  (function() {
+    const sections = document.querySelectorAll('section[id]');
+    const links    = document.querySelectorAll('.sidebar a[href^="#"]');
+
+    function updateActive() {
+      const scrollY = window.scrollY + 100;
+      let current = '';
+      sections.forEach(s => {
+        if (s.offsetTop <= scrollY) current = s.id;
+      });
+      links.forEach(a => {
+        a.classList.toggle('active', a.getAttribute('href') === '#' + current);
+      });
+    }
+
+    window.addEventListener('scroll', updateActive, { passive: true });
+    updateActive();
+  })();
+</script>
+
+</body>
+</html>

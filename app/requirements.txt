@@ -1,0 +1,13 @@
+# OpenClaw Secure App — Python Dependencies
+
+# Web framework
+flask==3.0.3
+
+# HTTP client for OpenBao API calls
+requests==2.32.3
+
+# WSGI server (production-ready)
+gunicorn==22.0.0
+
+# Fernet symmetric encryption (for workspace session data)
+cryptography==43.0.3

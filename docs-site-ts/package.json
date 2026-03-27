@@ -1,0 +1,15 @@
+{
+  "name": "openclaw-secure-docker-docs",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "serve": "vite preview --port 8320 --host 127.0.0.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "vite": "^5.4.0"
+  }
+}

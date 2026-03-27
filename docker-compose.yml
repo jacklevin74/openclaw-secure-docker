@@ -1,0 +1,182 @@
+# OpenClaw Secure Docker Environment
+# =====================================
+# Extends the openbao-test pattern with:
+#   - tmpfs mounts for sessions, secrets, cache (RAM-only)
+#   - Named volume for workspace (app-level Fernet encryption)
+#   - Non-root user + read-only root filesystem
+#   - No secrets in env vars or image layers
+#   - Fernet encryption key fetched from OpenBao at runtime
+#   - Dead man's switch + auto-shred trap on SIGTERM
+#
+# Architecture:
+#   /openclaw/sessions/   ← tmpfs (RAM) — active conversations
+#   /openclaw/workspace/  ← encrypted named volume — persistent memory
+#   /openclaw/secrets/    ← tmpfs (RAM) — API keys from OpenBao
+#   /openclaw/cache/      ← tmpfs (RAM) — model cache, temp files
+
+services:
+
+  # ─────────────────────────────────────────────
+  # 1. OpenBao Server (Shamir seal, dev mode)
+  # ─────────────────────────────────────────────
+  openbao:
+    image: ghcr.io/openbao/openbao:latest
+    container_name: openclaw-openbao
+    command:
+      - "bao"
+      - "server"
+      - "-dev"
+      - "-dev-root-token-id=root-token-for-testing"
+      - "-dev-listen-address=0.0.0.0:8200"
+    ports:
+      - "8210:8200"   # 8200 may be used by openbao-test; use 8210 for this stack
+    environment:
+      BAO_ADDR: "http://0.0.0.0:8200"
+      BAO_API_ADDR: "http://0.0.0.0:8200"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8200/v1/sys/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - openclaw-net
+    # tmpfs for OpenBao's in-memory storage scratch space
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+
+  # ─────────────────────────────────────────────
+  # 2. OpenBao Init — bootstrap KV, AppRole, enc key
+  # ─────────────────────────────────────────────
+  openbao-init:
+    image: ghcr.io/openbao/openbao:latest
+    container_name: openclaw-openbao-init
+    depends_on:
+      openbao:
+        condition: service_healthy
+    volumes:
+      - ./init:/init:ro
+      - approle-creds:/approle-creds
+    environment:
+      BAO_ADDR: "http://openbao:8200"
+      BAO_TOKEN: "root-token-for-testing"
+    entrypoint: ["/bin/sh", "/init/setup.sh"]
+    networks:
+      - openclaw-net
+
+  # ─────────────────────────────────────────────
+  # 3. OpenClaw Simulator App
+  # ─────────────────────────────────────────────
+  openclaw-app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    container_name: openclaw-app
+    depends_on:
+      openbao-init:
+        condition: service_completed_successfully
+    ports:
+      - "8300:8300"
+    environment:
+      BAO_ADDR: "http://openbao:8200"
+      APPROLE_CREDS_PATH: "/approle-creds"
+      HEARTBEAT_INTERVAL: "30"
+      FLASK_ENV: "production"
+      # NO secrets here — all fetched from OpenBao at runtime
+    volumes:
+      # AppRole credentials from init container (read-only)
+      - approle-creds:/approle-creds:ro
+
+      # ── tmpfs mounts (RAM only — wiped on stop) ──
+      # Active sessions — never touch disk
+      - type: tmpfs
+        target: /openclaw/sessions
+        tmpfs:
+          size: 67108864   # 64MB
+
+      # Secrets fetched from OpenBao — RAM only
+      - type: tmpfs
+        target: /openclaw/secrets
+        tmpfs:
+          size: 10485760   # 10MB
+
+      # Model cache and temp files
+      - type: tmpfs
+        target: /openclaw/cache
+        tmpfs:
+          size: 134217728  # 128MB
+
+      # ── Persistent encrypted workspace ──
+      # Named volume simulates LUKS encrypted volume
+      # App-level Fernet encryption is the practical security layer
+      - workspace-data:/openclaw/workspace
+
+      # Writable tmp for gunicorn/app runtime needs
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 32m
+
+      # Writable for Python bytecode cache
+      - type: tmpfs
+        target: /app/__pycache__
+        tmpfs:
+          size: 16m
+
+      # Writable for su/login utilities
+      - type: tmpfs
+        target: /var/run
+        tmpfs:
+          size: 1m
+
+    networks:
+      - openclaw-net
+    restart: on-failure:3
+
+    # Read-only root filesystem — writes only go to explicitly declared volumes/tmpfs
+    read_only: true
+
+    # Drop all Linux capabilities (principle of least privilege)
+    cap_drop:
+      - ALL
+
+    # Only add what's strictly needed for entrypoint privilege drop
+    cap_add:
+      - SETUID
+      - SETGID
+      - CHOWN
+      - DAC_OVERRIDE
+
+    # Prevent privilege escalation
+    security_opt:
+      - no-new-privileges:true
+
+    # Run as root initially so entrypoint can chown tmpfs mounts,
+    # then app.py drops to non-root via Python's os.setuid()
+    # Belt + suspenders: read-only rootfs + cap_drop prevents privilege abuse
+
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8300/health')"]
+      interval: 15s
+      timeout: 5s
+      start_period: 45s
+      retries: 3
+
+# ─────────────────────────────────────────────
+# Volumes
+# ─────────────────────────────────────────────
+volumes:
+  approle-creds:
+    # Shared between init and app for AppRole credentials
+  workspace-data:
+    # Persistent encrypted workspace — survives container restarts
+    # App uses Fernet encryption before writing here
+    # In production, back this with a LUKS-encrypted host volume
+
+# ─────────────────────────────────────────────
+# Networks
+# ─────────────────────────────────────────────
+networks:
+  openclaw-net:
+    driver: bridge
