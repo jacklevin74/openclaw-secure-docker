@@ -1,8 +1,7 @@
 #!/bin/sh
 # Entrypoint wrapper:
 # 1. chown tmpfs mounts (they come in as root)
-# 2. Set up SIGTERM shred trap  
-# 3. Drop to non-root user and exec the app
+# 2. Drop to non-root user and exec the app
 
 set -e
 
@@ -10,4 +9,4 @@ set -e
 chown -R openclaw:openclaw /openclaw/sessions /openclaw/secrets /openclaw/cache 2>/dev/null || true
 
 # Drop to non-root and run the app
-exec su -s /bin/sh openclaw -c "python3 /app/app.py"
+exec su -s /bin/sh openclaw -c "node /app/dist/index.js"

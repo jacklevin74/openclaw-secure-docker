@@ -1,27 +1,40 @@
-# ─────────────────────────────────────────────────────────────────────────────
-# OpenClaw Secure App — Dockerfile
-# ─────────────────────────────────────────────────────────────────────────────
+# ──────────────────��──────────────────────────────────────────────────────────
+# OpenClaw Secure App — Dockerfile (TypeScript/Node.js)
+# ────────────────────────────────────────────────────────────���────────────────
 # Security hardening:
+#   - Multi-stage build (build stage has devDeps, production stage does not)
 #   - Non-root user (UID 10001)
-#   - Minimal slim base image
+#   - Minimal slim base image (glibc for native crypto)
 #   - No secrets in image layers or ENV
 #   - Read-only root filesystem (enforced via docker-compose)
 #   - Directories pre-created for tmpfs + volume mounts
-#   - cryptography library for Fernet encryption
-# ─────────────────────────────────────────────────────────────────────────────
+#   - Node.js built-in crypto module for Fernet encryption
+# ────────────────��────────────────────────────────────────────────────────────
 
-FROM python:3.12-slim
+# ── Build stage ─────────────────────��─────────────────────────────────────────
+FROM node:22-slim AS builder
+
+WORKDIR /build
+
+# Copy package files and install all deps (including devDependencies for tsc)
+COPY package.json package-lock.json* ./
+RUN npm install
+
+# Copy TypeScript source and compile
+COPY tsconfig.json ./
+COPY src/ ./src/
+RUN npx tsc
+
+# ── Production stage ────────────────────���───────────────────────────────��─────
+FROM node:22-slim
 
 LABEL maintainer="OpenClaw Secure Docker"
-LABEL description="OpenClaw agent simulator with Fernet encryption, tmpfs sessions, OpenBao secrets"
+LABEL description="OpenClaw agent simulator with Fernet encryption, tmpfs sessions, OpenBao secrets (TypeScript)"
 
-# ── System setup ──────────────────────────────────────────────────────────────
+# ── System setup ──────────────────────────────────────────────���───────────────
 
-# Install only what's needed for the cryptography library (libffi, openssl headers)
-# and for secure-delete operations (coreutils provides shred as fallback)
+# Install coreutils for shred fallback. Node 22 slim has glibc for native crypto.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libffi-dev \
-        libssl-dev \
         coreutils \
     && rm -rf /var/lib/apt/lists/*
 
@@ -30,22 +43,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN groupadd -r -g 10001 openclaw && \
     useradd -r -u 10001 -g openclaw -s /bin/false -d /app openclaw
 
-# ── Working directory ──────────────────────────────────────────────────────────
+# ── Working directory ───────────────��──────────────────────────────────────────
 
 WORKDIR /app
 
-# ── Install Python dependencies ────────────────────────────────────────────────
+# ── Install Node.js production dependencies ───────────────────────────────────
 
-COPY requirements.txt .
+COPY package.json package-lock.json* ./
 
-# Install deps as root (before user switch)
-RUN pip install --no-cache-dir -r requirements.txt
+# Install production deps only (no devDependencies in final image)
+RUN npm install --omit=dev --ignore-scripts
 
-# ── Copy application code ──────────────────────────────────────────────────────
+# ── Copy compiled JavaScript from build stage ���────────────────────────────────
 
-COPY app.py .
+COPY --from=builder /build/dist/ ./dist/
 
-# ── Directory scaffold ─────────────────────────────────────────────────────────
+# ── Directory scaffold ───────────────���─────────────────────────────────────────
 # Pre-create mount points so they exist before docker-compose mounts tmpfs/volumes.
 # Ownership must match the non-root UID so the app can write to them.
 
@@ -62,7 +75,7 @@ RUN mkdir -p \
         /app \
         /tmp
 
-# ── Copy entrypoint ────────────────────────────────────────────────────────────
+# ── Copy entrypoint ──────────────────────��─────────────────────────────────────
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
@@ -71,7 +84,7 @@ RUN chmod +x /entrypoint.sh
 # then drop to the openclaw user for the actual app.
 # Security enforced via: read-only rootfs, cap_drop ALL, no-new-privileges
 
-# ── Runtime configuration ──────────────────────────────────────────────────────
+# ── Runtime configuration ─────────────────���────────────────────────────────────
 
 EXPOSE 8300
 
@@ -79,13 +92,12 @@ EXPOSE 8300
 ENV BAO_ADDR="http://openbao:8200"
 ENV APPROLE_CREDS_PATH="/approle-creds"
 ENV HEARTBEAT_INTERVAL="30"
-ENV PYTHONUNBUFFERED="1"
-ENV PYTHONDONTWRITEBYTECODE="1"
+ENV NODE_ENV="production"
 
-# Health check uses Python (no curl needed — keeps image minimal)
+# Health check uses Node.js (no curl needed — keeps image minimal)
 HEALTHCHECK --interval=15s --timeout=5s --start-period=45s --retries=3 \
-    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8300/health')" || exit 1
+    CMD node -e "fetch('http://localhost:8300/health').then(r=>{process.exit(r.ok?0:1)}).catch(()=>process.exit(1))" || exit 1
 
-# ── Entrypoint ────────────────────────────────────────────────────────────────
+# ── Entrypoint ─────────────────────────────���────────────────��─────────────────
 
 CMD ["/entrypoint.sh"]
