@@ -530,6 +530,24 @@ curl -s -X DELETE "${APP_URL}/session/${PLAIN_TEST_ID}" > /dev/null 2>&1
 # ─────────────────────────────────────────────────────────────────────────────
 section "Test 8: Non-Root Container User"
 
+# Check app process runs as non-root
+APP_USER=$(docker exec "${APP_CONTAINER}" sh -c "whoami 2>/dev/null || id -un 2>/dev/null || echo unknown" 2>/dev/null)
+APP_UID=$(docker exec "${APP_CONTAINER}" sh -c "id -u 2>/dev/null || echo -1" 2>/dev/null)
+
+if [ "$APP_USER" = "openclaw" ] || [ "$APP_UID" = "10001" ]; then
+    pass "App process runs as non-root user (${APP_USER}, UID ${APP_UID})"
+else
+    # Entrypoint starts as root to chown, then drops — check the actual app process
+    NODE_UID=$(docker exec "${APP_CONTAINER}" sh -c "ps aux 2>/dev/null | grep 'node.*index.js' | grep -v grep | awk '{print \$1}' | head -1" 2>/dev/null || echo "unknown")
+    if [ "$NODE_UID" = "opencla" ] || [ "$NODE_UID" = "10001" ]; then
+        pass "Node process runs as non-root (${NODE_UID})"
+    else
+        warn "App user: ${APP_USER} (UID ${APP_UID}), Node process owner: ${NODE_UID}"
+    fi
+fi
+
+# Check security options
+PRIV_CHECK=$(docker inspect "${APP_CONTAINER}" --format \
     '{{range .HostConfig.SecurityOpt}}{{.}} {{end}}' 2>/dev/null || echo "")
 if echo "$PRIV_CHECK" | grep -q "no-new-privileges"; then
     pass "no-new-privileges:true security option is set"
